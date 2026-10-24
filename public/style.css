@@ -321,6 +321,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--brass);out
 }
 
 /* ---------- multiplayer additions ---------- */
+[hidden]{display:none !important}
 html,body{min-height:100%}
 .lobby{display:flex;flex-direction:column;gap:14px}
 .lobby label{display:flex;flex-direction:column;gap:5px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}

@@ -53,7 +53,7 @@ function createRoom(){
 
 const teamOf = s => s % 2;
 const TEAMNAME = ['Us','Them'];
-const nameOf = (room,s) => room.seats[s] ? room.seats[s].name : 'Seat '+(s+1);
+const nameOf = (room,s) => room.seats[s] ? room.seats[s].name : 'Bot '+(s+1);
 
 function log(room, html, cls){
   room.log.unshift({html, cls: cls||''});
