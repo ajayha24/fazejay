@@ -1,0 +1,10 @@
+{
+  "name": "kitchen-table-45s",
+  "version": "1.0.0",
+  "description": "Auction 45s for four, played by house rules — online, over a link.",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "ws": "^8.18.0" },
+  "license": "MIT"
+}

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kitchen Table 45s</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Libre+Baskerville:wght@400;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <main class="board">
+    <div class="topbar">
+      <h1 class="wordmark">Kitchen Table <em>45s</em></h1>
+      <span class="tag" id="tableTag"></span>
+      <span class="spacer"></span>
+      <button class="ghost" id="btnInvite" hidden>Copy invite link</button>
+      <button class="ghost" id="btnRules">Rules</button>
+      <button class="ghost" id="btnSettings" hidden>House rules</button>
+    </div>
+
+    <div class="felt">
+      <div class="seat seat-n" id="seatBox2"></div>
+      <div class="seat seat-w" id="seatBox1"></div>
+      <div class="seat seat-e" id="seatBox3"></div>
+
+      <div class="well">
+        <div class="slot-n" id="slot2"></div>
+        <div class="slot-w" id="slot1"></div>
+        <div class="slot-e" id="slot3"></div>
+        <div class="slot-s" id="slot0"></div>
+        <div class="wellinfo" id="wellinfo"></div>
+      </div>
+
+      <div class="seat seat-s">
+        <div class="handwrap">
+          <div class="hand" id="hand"></div>
+          <div class="handnote" id="handnote"></div>
+          <div class="actionbar" id="actionbar" hidden></div>
+          <div id="seatBox0"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <aside class="rail">
+    <div>
+      <h2>Score</h2>
+      <div class="scorebar">
+        <div class="tally us"><span class="who" id="whoUs">Us</span><span class="n" id="scoreUs">0</span><span class="sub" id="subUs"></span></div>
+        <div class="tally"><span class="who">Them</span><span class="n" id="scoreThem">0</span><span class="sub" id="subThem"></span></div>
+      </div>
+      <div class="target" id="targetNote"></div>
+    </div>
+    <div>
+      <h2>This hand &middot; 6 units</h2>
+      <div class="units" id="units"></div>
+      <div class="unitlegend"><span id="unitLeft"></span><span id="unitQuota"></span></div>
+    </div>
+    <div class="contract idle" id="contract"></div>
+    <div style="display:flex;flex-direction:column;min-height:0;flex:1">
+      <h2>Table talk</h2>
+      <div class="log" id="log"></div>
+    </div>
+  </aside>
+</div>
+<div id="overlay"></div>
+<script src="app.js"></script>
+</body>
+</html>
