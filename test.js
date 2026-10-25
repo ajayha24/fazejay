@@ -125,6 +125,20 @@ ok(R.botDiscard(H(['5S','KC','9D','2H','AH']),'S').sort().join()==='2H,9D,KC',
    "throws every card outside trump, keeping the ace of hearts");
 ok(R.botDiscard(H(['5S','JS','7S','2S','AH']),'S').length===0, "an all-trump hand stands pat");
 
+
+/* ---- reneging: only over a LOWER trump lead ---- */
+var only=function(ids,led){ return R.legalMoves(H(ids), T([led]), 'S', true).map(function(c){return c.id;}); };
+ok(only(['JS','9D'],'5S').indexOf('9D')<0, "the 5 led drags out a lone jack");
+ok(only(['AH','9D'],'5S').indexOf('9D')<0, "the 5 led drags out a lone ace of hearts");
+ok(only(['AH','9D'],'JS').indexOf('9D')<0, "the jack led drags out a lone ace of hearts");
+ok(only(['5S','9D'],'JS').indexOf('9D')>=0, "but the 5 may still be held back under the jack");
+ok(only(['5S','9D'],'KS').indexOf('9D')>=0, "and under any lower trump");
+ok(only(['JS','9D'],'KS').indexOf('9D')>=0, "a lone jack may be held back under the king");
+ok(only(['AH','9D'],'KS').indexOf('9D')>=0, "a lone ace of hearts may be held back under the king");
+ok(only(['JS','7S','9D'],'KS').indexOf('9D')<0, "holding another trump you must follow regardless");
+ok(only(['5S','JS','9D'],'KS').indexOf('9D')>=0, "two renegable tops and nothing else stays free");
+ok(only(['5S','AH','9D'],'JS').indexOf('9D')<0, "the jack led forces the ace of hearts even beside the 5");
+
 out.push(fails? ("\n"+fails+" FAILED") : "\nall "+out.length+" checks passed");
 console.log(out.join("\n"));
 process.exit(fails?1:0);

@@ -62,10 +62,12 @@ function legalMoves(hand, trick, t, enforce){
   // Plain suit led: follow it OR trump it. Never forced to trump, never allowed
   // to throw off a third suit while holding the suit led.
   if(ledSuit!==t) return match.concat(hand.filter(c => isTrump(c,t)));
-  // Trump led: you must follow, except the 5, the jack and the ace of hearts may
-  // be held back when they are the ONLY trumps in your hand.
-  const top = TOP3(t);
-  const forced = match.filter(c => !top.includes(c.id));
+  // Trump led. The 5, the jack and the ace of hearts may be held back, but only
+  // when BOTH hold: they are the only trumps you have left, AND they outrank the
+  // card led. A higher one led drags a lower one out — lead the 5 and the jack
+  // or the ace of hearts must fall; lead the jack and the ace of hearts must fall.
+  const top = TOP3(t), ledPower = trumpStrength(led, t);
+  const forced = match.filter(c => !(top.includes(c.id) && trumpStrength(c,t) > ledPower));
   return forced.length ? match : hand.slice();
 }
 

@@ -429,7 +429,7 @@ el('btnRules').onclick=()=>{
   '<li>Low in black, high in red.</li></ul>'+
   '<h4>Following</h4><ul>'+
   '<li><b>Plain suit led:</b> follow it or trump it — you can’t throw off a third suit while holding the suit led.</li>'+
-  '<li><b>Trump led:</b> you must follow, except the <b>5, jack and ace of hearts</b> may be held back when they’re your only trumps.</li>'+
+  '<li><b>Trump led:</b> you must follow, except the <b>5, jack and ace of hearts</b> may be held back when they are your only trumps <b>and</b> they outrank the card led — lead the 5 and a lone jack or ace of hearts has to fall.</li>'+
   '<li>Trump beats any plain card; otherwise the highest card of the suit led takes it.</li></ul>'+
   '</div><div class="row" style="margin-top:16px"><button class="btn quiet" id="closeR">Close</button></div></div>');
   el('closeR').onclick=closeOv;
