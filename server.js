@@ -96,6 +96,7 @@ function dealHand(room){
   G.drawers = []; G.drawQueue = []; G.drawingWho = null;
   G.drawInfo = [null,null,null,null];
   G.result = null;
+  G.resolving = false;
   G.phase = 'bidding';
   G.turn = (G.dealer+1)%4;
   log(room, 'Hand '+G.handNo+' — <b>'+nameOf(room,G.dealer)+'</b> deals, <b>'+nameOf(room,(G.dealer+1)%4)+'</b> opens the bidding.', 'deal');
@@ -186,7 +187,7 @@ function startPlay(room){
 
 function playCard(room, seat, cardId){
   const G = room.G;
-  if(G.phase!=='playing' || G.turn!==seat) return;
+  if(G.phase!=='playing' || G.turn!==seat || G.resolving) return;
   const card = G.hands[seat].find(c => c.id===cardId);
   if(!card) return;
   const legal = R.legalMoves(G.hands[seat], G.trick, G.trump, room.settings.enforceRenege);
@@ -199,13 +200,21 @@ function playCard(room, seat, cardId){
     if(!G.highTrump || R.trumpStrength(card,G.trump) > R.trumpStrength(G.highTrump.card,G.trump))
       G.highTrump = {card, seat};
   }
-  if(G.trick.length===4){ push(room); return later(room, 1400, () => finishTrick(room)); }
+  if(G.trick.length===4){
+    // The finished trick sits on the table for a beat. G.turn still points at
+    // whoever played last, so without this guard they could play a second card
+    // into the pause — a double click was enough to empty a hand early.
+    G.resolving = true;
+    push(room);
+    return later(room, 1400, () => finishTrick(room));
+  }
   G.turn = (G.turn+1)%4;
   push(room); drive(room);
 }
 
 function finishTrick(room){
   const G = room.G;
+  G.resolving = false;
   const w = R.trickWinner(G.trick, G.trump);
   G.units[teamOf(w.seat)]++;
   log(room, '<b>'+nameOf(room,w.seat)+'</b> takes trick '+(G.trickNo+1)+' with '+w.card.r+R.GLYPH[w.card.s]+'.');
@@ -265,7 +274,9 @@ const isBot = (room, seat) => !room.seats[seat] || room.seats[seat].bot || room.
 
 function drive(room){
   const G = room.G;
-  if(!G) return;
+  // A room owns a single timer, so scheduling here while a beat is already
+  // pending would cancel it. Never step on the end-of-trick pause.
+  if(!G || G.resolving || room.timer) return;
   const s = room.settings;
   if(G.phase==='bidding' && isBot(room, G.turn)){
     const seat = G.turn;
@@ -335,7 +346,8 @@ function viewFor(room, mySeat){
     winner: G.winner,
     // Only ever your own cards leave the server.
     hand: mySeat===null ? [] : G.hands[mySeat],
-    legal: (mySeat!==null && G.phase==='playing' && G.turn===mySeat)
+    resolving: !!G.resolving,
+    legal: (mySeat!==null && G.phase==='playing' && G.turn===mySeat && !G.resolving)
       ? R.legalMoves(G.hands[mySeat], G.trick, G.trump, room.settings.enforceRenege).map(c => c.id)
       : null
   });
@@ -459,7 +471,7 @@ wss.on('connection', ws => {
 setInterval(() => {
   for(const [code,r] of rooms){
     if(Date.now() - r.touched > 1000*60*90){ clearTimeout(r.timer); rooms.delete(code); }
-    else if(r.G) drive(r);
+    else if(r.G && !r.timer) drive(r);     // never cancel a pending beat
   }
 }, 20000);
 
