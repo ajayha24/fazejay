@@ -128,22 +128,23 @@ function suitHolding(hand, t){
 /* The ladder, by what's in the hand rather than a fuzzy score.
    A 5 is worth 15 on its own. Nothing above 15 without the 5 AND the jack. */
 function bidFor(h){
-  // Nothing above 15 without the 5. An opponent who holds it takes a trick AND
-  // the high-trump unit — two of the six gone, leaving you 4 of the remaining 4.
-  // Measured: bidding 20 on a jack without the 5 makes it just 16% of the time
-  // when an opponent has the 5, which happens on 38% of those hands.
-  if(h.five && h.jack && h.ah && h.len>=4) return 30;
-  if(h.five && h.jack && h.len>=4 && (h.ah||h.ace||h.king)) return 25;
-  if(h.five && h.jack && h.len>=3) return 20;
-  if(h.five) return 15;                                  // the 5 alone is always worth 15
+  const honours = (h.ah?1:0) + (h.ace?1:0) + (h.king?1:0);
+  // Thresholds swept over 500,000 deals, every holding played at every bid
+  // level on identical cards. Bidding up is worth more than it looks because
+  // it buys the contract and the right to name trump.
+  if(h.five && h.jack && h.len>=5) return 30;                 // all five cards trump
+  if(h.five && h.jack && h.len>=3 && honours>=2) return 25;
+  if(h.five && (h.len>=3 || h.jack || (h.ah && h.len>=2))) return 20;
+  if(h.five) return 15;                                       // the 5 alone is always worth 15
 
-  // The ace of hearts is a defending card, not a bidding one: it is trump in
-  // every suit, so you keep it and set whoever buys the hand. Measured at
-  // +1.09 passing against +0.43 bidding. It never qualifies a bid on its own.
+  // Never above 15 without the 5. An opponent holding it takes a trick AND the
+  // high-trump unit, leaving you 4 of the remaining 4 — measured at 16%.
+  // The ace of hearts is trump in every suit, so it is worth more defending
+  // than bidding and never qualifies a bid on its own.
   if(h.jack && h.len>=3) return 15;
   if(h.jack && h.len>=2 && (h.ace||h.king)) return 15;
   if(h.len>=4 && (h.ace||h.king)) return 15;
-  return 0;                                              // raw length is not a bid
+  return 0;                                                   // raw length is not a bid
 }
 
 /* Best suit to call, and what it's worth. Ties break on length, then raw strength. */

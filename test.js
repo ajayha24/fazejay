@@ -83,7 +83,7 @@ var bid=function(ids){ return R.bestBidSuit(H(ids)); };
 ok(bid(['5S','3S','9D','KC','2H']).bid===15, "a 5 on its own bids 15");
 ok(bid(['5S','3S','9D','KC','2H']).suit==='S', "and calls the suit the 5 is in");
 ok(bid(['5S','JS','7S','9D','2H']).bid===20, "5 + jack + a third trump bids 20");
-ok(bid(['5S','JS','9D','KC','2H']).bid===15, "5 + jack with no length stays at 15");
+ok(bid(['5S','JS','9D','KC','2H']).bid===20, "5 + jack is worth 20 even with no length");
 // The ace of hearts is trump in every suit, so it never counts as length and
 // never qualifies a bid on its own — it is worth more defending.
 ok(bid(['JS','AH','7S','9D','2H']).bid===0, "jack + A-hearts + one spade is a pass, not a bid");
@@ -93,10 +93,14 @@ ok(bid(['AH','KS','QS','9S','2H']).bid===0, "A-hearts plus only three real spade
 ok(bid(['KS','QS','9S','7S','2H']).bid===15, "four real spades with the king does open 15");
 ok(R.suitHolding([C('AH'),C('9S')],'S').len===1, "A-hearts is not counted as length in another suit");
 ok(R.suitHolding([C('AH'),C('9H')],'H').len===2, "it is length when hearts are trump");
-ok(bid(['5S','3S','2S','9S','7S']).bid===15, "five low trumps with no honour is still only 15");
+ok(bid(['5S','3S','2S','9S','7S']).bid===20, "the 5 plus length is 20 without needing the jack");
+ok(bid(['5S','3S','9D','KC','2H']).bid===15, "the 5 plus one other trump stays at 15");
+ok(bid(['5S','9D','KC','2H','7C']).bid===15, "the bare 5 stays at 15");
 ok(bid(['AS','KS','QS','7S','2H']).bid===15, "four trumps with an honour bids 15");
-ok(bid(['5S','JS','KS','7S','2H']).bid===25, "5 + jack + king with four trumps bids 25");
-ok(bid(['5S','JS','AH','KS','7S']).bid===30, "5 + jack + A-hearts with five trumps bids 30");
+ok(bid(['5S','JS','KS','7S','2H']).bid===20, "5 + jack + king with four trumps is 20 — 25 needs two honours");
+ok(bid(['5S','JS','KS','AS','2H']).bid===25, "5 + jack + king + ace bids 25");
+ok(bid(['5S','JS','AH','KS','7S']).bid===25, "5 + jack + A-hearts + king bids 25 (four real spades)");
+ok(bid(['5S','JS','KS','7S','3S']).bid===30, "5 + jack with all five cards trump bids 30");
 ok(bid(['KC','QD','9H','3S','2H']).bid===0, "a scattered hand passes");
 
 // the 5 must beat a bare-length hand when both are available
