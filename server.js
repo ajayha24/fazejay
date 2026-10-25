@@ -16,8 +16,16 @@ const server = http.createServer((req,res) => {
   const url = (req.url||'/').split('?')[0];
   let file = url === '/' ? 'index.html' : path.normalize(url).replace(/^(\.\.[/\\])+/,'').slice(1);
   let full = path.join(PUB, file);
-  if(!full.startsWith(PUB) || !fs.existsSync(full) || fs.statSync(full).isDirectory())
-    full = path.join(PUB,'index.html');          // deep links fall through to the app
+  const missing = !full.startsWith(PUB) || !fs.existsSync(full) || fs.statSync(full).isDirectory();
+  if(missing){
+    // Only routes fall through to the app. A missing asset must 404, never come
+    // back as HTML — that silently breaks /t/CODE deep links.
+    if(path.extname(file)){
+      res.writeHead(404, {'Content-Type':'text/plain'});
+      return res.end('Not found');
+    }
+    full = path.join(PUB,'index.html');
+  }
   res.writeHead(200, {'Content-Type': TYPES[path.extname(full)] || 'application/octet-stream'});
   fs.createReadStream(full).pipe(res);
 });

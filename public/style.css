@@ -353,3 +353,59 @@ html,body{min-height:100%}
 .plate .dot.away{background:var(--rouge)}
 .plate .dot.bot{background:var(--brass-dim)}
 .waiting{font-size:12.5px;color:var(--muted);text-align:center;letter-spacing:.02em}
+
+/* ---------- phones ---------- */
+@media (max-width:760px){
+  :root{--card-w:50px;--card-h:72px}
+  .board{padding:12px 10px 16px;overflow-x:hidden;gap:10px}
+  .topbar{gap:7px}
+  .wordmark{font-size:17px}
+  .topbar .tag{font-size:11.5px}
+  .ghost{padding:4px 11px;font-size:12px}
+
+  /* Narrow side columns, and nothing in a seat may push past them. */
+  .felt{
+    grid-template-columns:84px minmax(0,1fr) 84px;
+    grid-template-rows:auto minmax(150px,1fr) auto;
+    gap:6px; min-height:0;
+  }
+  .seat,.seat-w,.seat-e{min-width:0;max-width:100%;gap:5px}
+  /* Side seats must live inside their column, never spill past the screen edge. */
+  .seat-w,.seat-e{width:100%}
+  .seat-w .plate,.seat-e .plate{
+    width:100%;justify-content:center;padding:4px 6px;
+    flex-wrap:wrap;white-space:normal;border-radius:12px;row-gap:2px;
+  }
+  .seat-w .avatar,.seat-e .avatar{display:none}
+  .seat-w .pname,.seat-e .pname{max-width:none;text-align:center}
+  .seat-w .chip-bid,.seat-e .chip-bid{flex-basis:100%;text-align:center}
+  .plate{padding:3px 8px 3px 3px;gap:5px;max-width:100%;overflow:hidden}
+  .plate .prole{display:none}
+  .pname{font-size:11px;max-width:54px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .avatar{width:19px;height:19px;font-size:9px}
+  .chip-bid{font-size:9px;padding:1px 5px}
+  .chip-bid.draw{font-size:8.5px;padding:1px 4px}
+
+  .back{width:19px;height:27px;margin-left:-11px}
+  .backs.vert .back{width:27px;height:19px;margin-top:-13px}
+
+  .well{padding:6px;border-radius:14px}
+  .card.sm{--card-w:40px;--card-h:58px;width:40px;height:58px}
+  .card.sm .r{font-size:10px}.card.sm .s{font-size:8px}.card.sm .big{font-size:17px}
+  .trumpmark{font-size:26px}
+  .trumpname{font-size:13px}
+  .playwrap .tag{font-size:8px;padding:1px 5px;bottom:-7px}
+
+  .hand{gap:5px}
+  .handnote{font-size:11.5px}
+  .actionbar{border-radius:16px;padding:7px 9px;gap:6px}
+  .actionbar .cue{flex-basis:100%;text-align:center;padding:0 0 2px;font-size:11px}
+  .actionbar .btn{padding:7px 12px;font-size:13px}
+  .actionbar .sep{display:none}
+
+  .rail{padding:14px 14px 18px;gap:14px}
+  .panel{padding:18px 16px}
+  .lobby input{font-size:16px}   /* 16px keeps iOS from zooming the page on focus */
+  .lobby input#code{font-size:20px}
+  .scrim{padding:14px}
+}

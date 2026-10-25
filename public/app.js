@@ -14,7 +14,9 @@ const store={
   get token(){ try{ return localStorage.getItem('f45.token'); }catch{ return null; } },
   set token(v){ try{ localStorage.setItem('f45.token', v); }catch{} },
   get name(){ try{ return localStorage.getItem('f45.name')||''; }catch{ return ''; } },
-  set name(v){ try{ localStorage.setItem('f45.name', v); }catch{} }
+  set name(v){ try{ localStorage.setItem('f45.name', v); }catch{} },
+  get lastCode(){ try{ return localStorage.getItem('f45.lastCode')||''; }catch{ return ''; } },
+  set lastCode(v){ try{ localStorage.setItem('f45.lastCode', v); }catch{} }
 };
 
 const roomFromUrl=()=>{
@@ -33,7 +35,7 @@ function connect(then){
     const m=JSON.parse(e.data);
     if(m.type==='state'){ V=m.view; render(); }
     else if(m.type==='joined'){
-      myToken=m.token; store.token=m.token;
+      myToken=m.token; store.token=m.token; store.lastCode=m.code;
       history.replaceState({}, '', '/t/'+m.code);
     }
     else if(m.type==='error') showError(m.message);
@@ -159,6 +161,8 @@ function renderWell(){
   }else if(V.phase==='bidding'){
     wi.innerHTML='<span class="lbl">Auction</span><span class="trumpname">'+
       (V.highBid?nameOf(V.highBid.seat)+' at '+V.highBid.value:'no bid yet')+'</span>';
+  }else if(V.phase==='naming'){
+    wi.innerHTML='<span class="lbl">Naming trump</span><span class="trumpname">'+nameOf(V.highBid.seat)+'</span>';
   }else wi.innerHTML='<span class="lbl">Dealing</span>';
 }
 
@@ -453,5 +457,9 @@ el('btnSettings').onclick=()=>{
   el('closeS').onclick=closeOv;
 };
 
-connect(()=>{ const code=roomFromUrl(); if(code) rejoin(); else renderLobby(true); });
+connect(()=>{
+  const code=roomFromUrl();
+  const returning = code && store.token && store.lastCode===code;
+  if(returning) rejoin(); else renderLobby(true);
+});
 renderLobby(true);
