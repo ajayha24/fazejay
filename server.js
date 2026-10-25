@@ -468,11 +468,29 @@ wss.on('connection', ws => {
   });
 });
 
+/* Housekeeping: drop tables nobody has touched in 90 minutes. */
 setInterval(() => {
-  for(const [code,r] of rooms){
+  for(const [code,r] of rooms)
     if(Date.now() - r.touched > 1000*60*90){ clearTimeout(r.timer); rooms.delete(code); }
-    else if(r.G && !r.timer) drive(r);     // never cancel a pending beat
+}, 60000);
+
+/* Watchdog. A room owns a single timer, so a lost or stomped beat would freeze
+   the table for good. Every couple of seconds, nudge any room that has nothing
+   scheduled but still owes somebody an action. */
+setInterval(() => {
+  for(const r of rooms.values()){
+    const G = r.G;
+    if(!G || r.timer) continue;                    // a beat is already on its way
+    if(G.resolving && G.trick.length === 4){
+      console.warn('[watchdog] lost end-of-trick beat, room', r.code);
+      finishTrick(r);
+    } else if(G.phase === 'shuffling'){
+      console.warn('[watchdog] lost deal, room', r.code);
+      dealHand(r);
+    } else {
+      drive(r);
+    }
   }
-}, 20000);
+}, 2500);
 
 server.listen(PORT, () => console.log('45s table running on http://localhost:'+PORT));
