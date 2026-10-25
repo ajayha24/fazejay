@@ -107,27 +107,59 @@ function bestSuit(hand){
   for(const s of SUITS){ const v = evalSuit(hand,s); if(v>best.v) best = {suit:s, v}; }
   return best;
 }
-const botTrump = hand => bestSuit(hand).suit;
+const botTrump = hand => bestBidSuit(hand).suit;
+
+/* What the hand actually holds in a given trump suit. */
+function suitHolding(hand, t){
+  const ids = new Set(hand.filter(c => isTrump(c,t)).map(c => c.id));
+  return {
+    n: ids.size,
+    five: ids.has('5'+t),
+    jack: ids.has('J'+t),
+    ah:   ids.has('AH'),
+    ace:  t!=='H' && ids.has('A'+t),
+    king: ids.has('K'+t)
+  };
+}
+
+/* The ladder, by what's in the hand rather than a fuzzy score.
+   A 5 is worth 15 on its own. Nothing above 15 without the 5 AND the jack. */
+function bidFor(h){
+  if(h.five && h.jack && h.ah && h.n>=5) return 30;                      // needs all six
+  if(h.five && h.jack && h.n>=4 && (h.ah||h.ace||h.king)) return 25;
+  if(h.five && h.jack && h.n>=3) return 20;
+  if(h.five) return 15;                                                  // almost always worth 15
+  if(h.n>=3 && (h.jack||h.ah)) return 15;                                // 2nd or 3rd trump with cover
+  if(h.n>=4 && (h.ace||h.king)) return 15;
+  if(h.n>=5) return 15;                                                  // length alone
+  return 0;
+}
+
+/* Best suit to call, and what it's worth. Ties break on length, then raw strength. */
+function bestBidSuit(hand){
+  let best = {suit:'S', bid:0, n:-1, v:-1};
+  for(const s of SUITS){
+    const h = suitHolding(hand, s);
+    const bid = bidFor(h), v = evalSuit(hand, s);
+    if(bid > best.bid || (bid===best.bid && (h.n > best.n || (h.n===best.n && v > best.v))))
+      best = {suit:s, bid, n:h.n, v};
+  }
+  return best;
+}
 
 function botBid(hand, {highBid, seat, isDealer, dealerHold}){
-  const {v} = bestSuit(hand);
-  const est = v + 1.15 + (Math.random()*.34 - .17);   // partner is worth a bit over a unit
+  const want = bestBidSuit(hand).bid;
   const cur = highBid ? highBid.value : 0;
   const partnerIn = highBid && (highBid.seat % 2) === (seat % 2);
-  let want = 0;
-  if(v>=5.0 && est>=5.7) want = 30;
-  else if(est>=4.85) want = 25;
-  else if(est>=4.0) want = 20;
-  else if(est>=3.15) want = 15;
-  if(partnerIn && want <= cur+5) want = 0;            // don't bid your partner up
+  if(partnerIn && want <= cur) return {value:null, hold:false};          // don't bid your partner up
   if(want > cur) return {value:want, hold:false};
-  if(dealerHold && isDealer && highBid && cur<30 && est >= quotaFor(cur)+.15)
+  if(dealerHold && isDealer && highBid && cur<30 && want>=cur)
     return {value:cur, hold:true};
   return {value:null, hold:false};
 }
 
-// Keep the trumps and the kings, pitch the rest.
-const botDiscard = (hand, t) => hand.filter(c => !(isTrump(c,t) || c.r==='K')).map(c => c.id);
+// Nothing outside the trump suit is worth keeping — throw it all and draw fresh.
+const botDiscard = (hand, t) => hand.filter(c => !isTrump(c,t)).map(c => c.id);
 
 const hiFirst = (a,t) => a.slice().sort((x,y) => power(y,t)-power(x,t));
 
@@ -185,5 +217,5 @@ module.exports = {
   SUITS, GLYPH, SUITNAME, RED, RANKS, TRUMP_ORDER, PLAIN_ORDER, TOP3,
   fullDeck, shuffle, isTrump, trumpStrength, plainStrength, effSuit, power,
   quotaFor, sortForDisplay, legalMoves, trickWinner,
-  evalSuit, bestSuit, botBid, botTrump, botDiscard, botPlay
+  evalSuit, bestSuit, suitHolding, bidFor, bestBidSuit, botBid, botTrump, botDiscard, botPlay
 };

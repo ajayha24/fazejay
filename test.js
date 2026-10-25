@@ -73,7 +73,49 @@ ok(bhand.some(function(c){return c.id===pick.id;}), "bot lead is a card it holds
 
 // bot keeps trumps and kings on the draw
 var disc=R.botDiscard([C('5S'),C('KC'),C('9D'),C('2H'),C('AH')],'S');
-ok(disc.length===2 && disc.indexOf('9D')>=0 && disc.indexOf('2H')>=0, "bot discards only the junk");
+ok(disc.length===3 && disc.indexOf('KC')>=0, "bot throws off-suit kings too — only trumps are worth keeping");
+
+
+/* ---- bidding ladder and discards ---- */
+var H=function(ids){ return ids.map(C); };
+var bid=function(ids){ return R.bestBidSuit(H(ids)); };
+
+ok(bid(['5S','3S','9D','KC','2H']).bid===15, "a 5 on its own bids 15");
+ok(bid(['5S','3S','9D','KC','2H']).suit==='S', "and calls the suit the 5 is in");
+ok(bid(['5S','JS','7S','9D','2H']).bid===20, "5 + jack + a third trump bids 20");
+ok(bid(['5S','JS','9D','KC','2H']).bid===15, "5 + jack with no length stays at 15");
+ok(bid(['JS','AH','7S','9D','2H']).bid===15, "jack + A-hearts + a third trump opens 15");
+ok(bid(['JS','AH','9D','KC','2H']).bid===0, "jack + A-hearts with no third trump passes");
+ok(bid(['AS','KS','QS','7S','2H']).bid===15, "four trumps with an honour bids 15");
+ok(bid(['5S','JS','KS','7S','2H']).bid===25, "5 + jack + king with four trumps bids 25");
+ok(bid(['5S','JS','AH','KS','7S']).bid===30, "5 + jack + A-hearts with five trumps bids 30");
+ok(bid(['KC','QD','9H','3S','2H']).bid===0, "a scattered hand passes");
+
+// the 5 must beat a bare-length hand when both are available
+var b=bid(['5D','3D','AS','KS','QS']);
+ok(b.bid===15, "picks a biddable suit from a two-suited hand");
+
+// no bid above 15 without the five
+var noFive=[['JS','AH','KS','QS','7S'],['AS','KS','QS','JS','7S']];
+ok(noFive.every(function(h){ return bid(h).bid<=15; }), "nothing outbids 15 without the 5");
+
+// auction behaviour
+var mk=function(ids,o){ return R.botBid(H(ids), o); };
+ok(mk(['5S','3S','9D','KC','2H'],{highBid:null,seat:1,isDealer:false,dealerHold:true}).value===15,
+   "bot opens 15 holding a 5");
+ok(mk(['5S','3S','9D','KC','2H'],{highBid:{value:15,seat:0},seat:1,isDealer:false,dealerHold:true}).value===null,
+   "a bare 5 cannot raise a standing 15");
+ok(mk(['5S','JS','7S','9D','2H'],{highBid:{value:15,seat:0},seat:1,isDealer:false,dealerHold:true}).value===20,
+   "5 + jack + length raises to 20");
+var held=mk(['5S','3S','9D','KC','2H'],{highBid:{value:15,seat:0},seat:1,isDealer:true,dealerHold:true});
+ok(held.value===15 && held.hold===true, "the dealer holds at 15 rather than raising");
+ok(mk(['5S','3S','9D','KC','2H'],{highBid:{value:15,seat:3},seat:1,isDealer:false,dealerHold:true}).value===null,
+   "never bids a partner up");
+
+// discards
+ok(R.botDiscard(H(['5S','KC','9D','2H','AH']),'S').sort().join()==='2H,9D,KC',
+   "throws every card outside trump, keeping the ace of hearts");
+ok(R.botDiscard(H(['5S','JS','7S','2S','AH']),'S').length===0, "an all-trump hand stands pat");
 
 out.push(fails? ("\n"+fails+" FAILED") : "\nall "+out.length+" checks passed");
 console.log(out.join("\n"));
