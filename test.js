@@ -84,8 +84,16 @@ ok(bid(['5S','3S','9D','KC','2H']).bid===15, "a 5 on its own bids 15");
 ok(bid(['5S','3S','9D','KC','2H']).suit==='S', "and calls the suit the 5 is in");
 ok(bid(['5S','JS','7S','9D','2H']).bid===20, "5 + jack + a third trump bids 20");
 ok(bid(['5S','JS','9D','KC','2H']).bid===15, "5 + jack with no length stays at 15");
-ok(bid(['JS','AH','7S','9D','2H']).bid===15, "jack + A-hearts + a third trump opens 15");
-ok(bid(['JS','AH','9D','KC','2H']).bid===0, "jack + A-hearts with no third trump passes");
+// The ace of hearts is trump in every suit, so it never counts as length and
+// never qualifies a bid on its own — it is worth more defending.
+ok(bid(['JS','AH','7S','9D','2H']).bid===0, "jack + A-hearts + one spade is a pass, not a bid");
+ok(bid(['JS','AH','7S','3S','2H']).bid===15, "jack with three real spades does open 15");
+ok(bid(['AH','7S','3S','9D','2H']).bid===0, "A-hearts alone never bids");
+ok(bid(['AH','KS','QS','9S','2H']).bid===0, "A-hearts plus only three real spades is still a pass");
+ok(bid(['KS','QS','9S','7S','2H']).bid===15, "four real spades with the king does open 15");
+ok(R.suitHolding([C('AH'),C('9S')],'S').len===1, "A-hearts is not counted as length in another suit");
+ok(R.suitHolding([C('AH'),C('9H')],'H').len===2, "it is length when hearts are trump");
+ok(bid(['5S','3S','2S','9S','7S']).bid===15, "five low trumps with no honour is still only 15");
 ok(bid(['AS','KS','QS','7S','2H']).bid===15, "four trumps with an honour bids 15");
 ok(bid(['5S','JS','KS','7S','2H']).bid===25, "5 + jack + king with four trumps bids 25");
 ok(bid(['5S','JS','AH','KS','7S']).bid===30, "5 + jack + A-hearts with five trumps bids 30");
