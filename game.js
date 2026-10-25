@@ -172,14 +172,20 @@ const botDiscard = (hand, t) => hand.filter(c => !isTrump(c,t)).map(c => c.id);
 
 const hiFirst = (a,t) => a.slice().sort((x,y) => power(y,t)-power(x,t));
 
-function botLead(legal, t, {onContract, trickNo, thirdHigh}){
+function botLead(legal, t, {onContract, trickNo, thirdHigh, teamKept, oppKept}){
   const n = TRUMP_ORDER[t].length;
   const trumps = hiFirst(legal.filter(c => isTrump(c,t)), t);
   const plains = hiFirst(legal.filter(c => !isTrump(c,t)), t);
+  // Everyone pitches all their non-trump, so what a player KEEPS is exactly how
+  // many trumps they were dealt — it is public information. When the other side
+  // kept more than yours, stop pulling: make them spend trumps on plain tricks.
+  const outgunned = teamKept!=null && oppKept!=null && oppKept > teamKept;
+
   // Opening lead off the contract: go low and let third man go high.
   if(trickNo===0 && !onContract && plains.length && thirdHigh!=='never')
     return plains[plains.length-1];
-  if(trumps.length && trumpStrength(trumps[0],t) >= n-1) return trumps[0];  // 5 or J: pull trumps
+  if(trumps.length && trumpStrength(trumps[0],t) >= n-1) return trumps[0];  // 5 or J always pulls
+  if(outgunned && plains.length) return plains[0].r==='K' ? plains[0] : plains[plains.length-1];
   if(plains.length && plains[0].r==='K') return plains[0];
   if(onContract && trumps.length) return trumps[0];
   if(plains.length) return plains[plains.length-1];

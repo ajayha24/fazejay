@@ -285,9 +285,12 @@ function drive(room){
   if(G.phase==='playing' && isBot(room, G.turn)){
     const seat = G.turn;
     return later(room, 750, () => {
+      const kept = p => (G.drawInfo && G.drawInfo[p]) ? G.drawInfo[p].kept : null;
+      const sum = (a,b) => (kept(a)==null||kept(b)==null) ? null : kept(a)+kept(b);
       const card = R.botPlay(G.hands[seat], G.trick, G.trump, {
         seat, trickNo:G.trickNo, highBid:G.highBid, enforce:s.enforceRenege,
-        thirdHigh:s.thirdHigh, onContract: teamOf(G.highBid.seat)===teamOf(seat)
+        thirdHigh:s.thirdHigh, onContract: teamOf(G.highBid.seat)===teamOf(seat),
+        teamKept: sum(seat,(seat+2)%4), oppKept: sum((seat+1)%4,(seat+3)%4)
       });
       playCard(room, seat, card.id);
     });
