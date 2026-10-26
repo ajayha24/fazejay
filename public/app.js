@@ -9,6 +9,7 @@ const quotaFor=b=>b/5;
 const el=id=>document.getElementById(id);
 
 let ws=null, V=null, discardSel=new Set(), connected=false, myToken=null;
+let dealKey=null, dealAt=0;          // which hand we last animated, and when
 
 const store={
   get token(){ try{ return localStorage.getItem('f45.token'); }catch{ return null; } },
@@ -33,7 +34,12 @@ function connect(then){
   ws.onopen=()=>{ connected=true; banner(false); then&&then(); };
   ws.onmessage=e=>{
     const m=JSON.parse(e.data);
-    if(m.type==='state'){ V=m.view; render(); }
+    if(m.type==='state'){
+      const key=V2key(m.view);
+      if(key && key!==dealKey){ dealKey=key; dealAt=Date.now(); }
+      V=m.view; render();
+      if(dealing()){ clearTimeout(window.__settle); window.__settle=setTimeout(render,1700); }
+    }
     else if(m.type==='joined'){
       myToken=m.token; store.token=m.token; store.lastCode=m.code;
       history.replaceState({}, '', '/t/'+m.code);
@@ -54,6 +60,24 @@ function banner(show){
   if(!show&&b) b.remove();
 }
 
+// A hand is "freshly dealt" for the length of the dealing animation.
+const V2key=v=>(v && v.code && v.handNo) ? v.code+'#'+v.handNo : null;
+
+/* Where each card sits in the 3-then-2 (or 2-then-3) rhythm, so the animation
+   matches how the cards actually came off the deck. */
+function dealDelays(){
+  const pat=(V && V.dealPattern) || [3,2];
+  const seatOrder=[0,1,2,3].map(k=>(V.dealer+1+k)%4);
+  const packet=[];                       // one entry per packet, in dealing order
+  for(const chunk of pat) for(const seat of seatOrder) packet.push({seat, chunk});
+  const perSeat={};
+  packet.forEach((p,i)=>{
+    (perSeat[p.seat]=perSeat[p.seat]||[]).push({at:i*170, n:p.chunk});
+  });
+  return perSeat;
+}
+const dealing=()=>V && V.handNo && (Date.now()-dealAt) < 1600;
+
 /* ---------------- card markup ---------------- */
 function cardHTML(c,{small,trump,cls,tag}={}){
   return '<span class="card'+(small?' sm':'')+(RED[c.s]?' red':'')+(trump?' trump':'')+(cls?' '+cls:'')+'">'+
@@ -72,7 +96,15 @@ function render(){
   if(V.phase==='lobby'){ renderLobby(); return; }
   closeOverlayIf(['lobby','error']);
 
-  el('tableTag').textContent='Table '+V.code;
+  const myTurn = V.mySeat!==null && (
+      (V.phase==='bidding'&&V.turn===V.mySeat) ||
+      (V.phase==='playing'&&V.turn===V.mySeat&&V.legal&&V.legal.length) ||
+      (V.phase==='naming'&&V.highBid.seat===V.mySeat) ||
+      (V.phase==='drawing'&&V.drawingWho===V.mySeat));
+  document.querySelector('.board').classList.toggle('myturn', !!myTurn);
+  el('tableTag').innerHTML = myTurn
+    ? '<span class="turnflag"><span class="pip"></span>Your turn</span>'
+    : 'Table '+V.code;
   el('btnInvite').hidden=false;
   el('btnSettings').hidden=!V.isHost;
 
@@ -131,8 +163,16 @@ function renderSeats(){
 
     if(pos===0){ box.innerHTML=plate; continue; }
     const vert=(pos===1||pos===3);
+    const an=dealing()&&V.phase==='bidding'?dealDelays()[seat]:null;
+    const dirs={1:[-200,0],2:[0,220],3:[200,0]};
     const backs='<div class="backs'+(vert?' vert':'')+'">'+
-      Array.from({length:V.counts[seat]||0},()=>'<span class="back"></span>').join('')+'</div>';
+      Array.from({length:V.counts[seat]||0},(_,idx)=>{
+        if(!an) return '<span class="back"></span>';
+        let acc=0, at=0;
+        for(const p of an){ if(idx<acc+p.n){ at=p.at; break; } acc+=p.n; }
+        const d=dirs[pos]||[0,0];
+        return '<span class="back dealt" style="animation-delay:'+at+'ms;--dx:'+d[0]+'px;--dy:'+d[1]+'px"></span>';
+      }).join('')+'</div>';
     box.innerHTML = pos===2 ? plate+backs : backs+plate;
   }
 }
@@ -235,13 +275,24 @@ function renderHand(){
   const h=el('hand');
   if(V.mySeat===null||!V.hand){ h.innerHTML=''; return; }
   const discarding=V.phase==='drawing'&&V.drawingWho===V.mySeat;
-  h.innerHTML=V.hand.map(c=>{
+  const anim=dealing()&&V.phase==='bidding'?dealDelays()[V.mySeat]:null;
+  let given=0;
+  h.className='hand'+(V.legal&&V.legal.length?' live':'');
+  h.innerHTML=V.hand.map((c,idx)=>{
     let cls='';
     if(discarding) cls='playable'+(discardSel.has(c.id)?' picked':'');
     else if(V.legal) cls=V.legal.includes(c.id)?'playable':'blocked';
     const disabled=V.legal&&!V.legal.includes(c.id);
+    let style='';
+    if(anim){
+      // find which packet this card arrived in
+      let acc=0, at=0;
+      for(const p of anim){ if(idx<acc+p.n){ at=p.at; break; } acc+=p.n; }
+      cls+=' dealt';
+      style=' style="animation-delay:'+at+'ms;--dx:'+((idx-2)*18)+'px;--dy:-260px;--dr:'+((idx-2)*4)+'deg"';
+    }
     return cardHTML(c,{trump:V.trump&&isTrumpC(c),cls})
-      .replace('<span class="card','<button type="button" data-id="'+c.id+'"'+(disabled?' disabled':'')+' class="card')
+      .replace('<span class="card','<button type="button" data-id="'+c.id+'"'+(disabled?' disabled':'')+style+' class="card')
       .replace(/<\/span>$/,'</button>');
   }).join('');
   h.querySelectorAll('button[data-id]').forEach(b=>b.onclick=()=>{

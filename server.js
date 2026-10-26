@@ -81,7 +81,8 @@ function dealHand(room){
   G.handNo++;
   const d = R.shuffle(R.fullDeck());
   G.hands = [[],[],[],[]];
-  for(const chunk of [3,2])                      // three then two, dealer's left first
+  G.dealPattern = Math.random() < 0.5 ? [3,2] : [2,3];   // three then two, or two then three
+  for(const chunk of G.dealPattern)
     for(let k=0;k<4;k++){
       const p = (G.dealer+1+k)%4;
       for(let n=0;n<chunk;n++) G.hands[p].push(d.pop());
@@ -330,6 +331,7 @@ function viewFor(room, mySeat){
     phase: G.phase,
     handNo: G.handNo,
     dealer: G.dealer,
+    dealPattern: G.dealPattern,
     turn: G.turn,
     trump: G.trump,
     highBid: G.highBid,
