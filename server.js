@@ -168,7 +168,7 @@ function doDiscard(room, seat, ids){
   log(room, '<b>'+nameOf(room,seat)+'</b> is ready.');
   if(waitingOn(G).length){ push(room); return drive(room); }
   G.resolving = true; push(room);
-  later(room, 450, () => serveDraws(room));
+  later(room, 450, () => serveDraws(room), 'serveDraws');
 }
 
 /* Everyone has chosen. Now the dealer serves, starting on their left and
@@ -222,7 +222,7 @@ function playCard(room, seat, cardId){
     // into the pause — a double click was enough to empty a hand early.
     G.resolving = true;
     push(room);
-    return later(room, 1400, () => finishTrick(room));
+    return later(room, 1400, () => finishTrick(room), 'finishTrick');
   }
   G.turn = (G.turn+1)%4;
   push(room); drive(room);
@@ -261,7 +261,7 @@ function contribute(room, seat, ids){
     G.decl.turn = null;
     G.resolving = true;
     push(room);
-    return later(room, 1600, () => resolveDeclare(room));
+    return later(room, 1600, () => resolveDeclare(room), 'resolveDeclare');
   }
   G.decl.turn = next;
   push(room); drive(room);
@@ -330,15 +330,23 @@ function nextHand(room){
   G.bids = [null,null,null,null]; G.units=[0,0]; G.highTrump=null; G.trickNo=0;
   G.drawInfo = [null,null,null,null]; G.pending = [null,null,null,null]; G.result = null;
   push(room);
-  later(room, 820, () => dealHand(room));
+  later(room, 820, () => dealHand(room), 'dealHand');
 }
 
 /* ---------------- bot driver ---------------- */
 const SPEED = Math.max(1, Number(process.env.SPEED) || 1);   // >1 speeds up bot pacing, for tests
-function later(room, ms, fn){
+function later(room, ms, fn, tag){
   ms = Math.max(20, Math.round(ms / SPEED));
+  if(room.timer) console.warn('[timer] CLEARED pending '+(room.tag||'?')+' to arm '+(tag||'?'));
   clearTimeout(room.timer);
-  room.timer = setTimeout(() => { room.timer = null; try{ fn(); }catch(e){ console.error(e); } }, ms);
+  const armed = Date.now();
+  room.tag = tag;
+  room.timer = setTimeout(() => {
+    const late = Date.now()-armed-ms;
+    if(late > 500) console.warn('[timer] '+(tag||'?')+' fired '+late+'ms late (wanted '+ms+'ms)');
+    room.timer = null;
+    try{ fn(); }catch(e){ console.error('[timer] '+(tag||'?')+' threw', e); }
+  }, ms);
 }
 // An empty seat, or one whose player dropped, is played by a bot so the table never stalls.
 const isBot = (room, seat) => !room.seats[seat] || room.seats[seat].bot || room.seats[seat].away;
@@ -354,11 +362,11 @@ function drive(room){
     return later(room, 700, () => {
       const b = R.botBid(G.hands[seat], {highBid:G.highBid, seat, isDealer:seat===G.dealer, dealerHold:s.dealerHold});
       placeBid(room, seat, b.value, b.hold);
-    });
+    }, 'botBid');
   }
   if(G.phase==='naming' && isBot(room, G.highBid.seat)){
     const seat = G.highBid.seat;
-    return later(room, 650, () => nameTrump(room, seat, R.botTrump(G.hands[seat])));
+    return later(room, 650, () => nameTrump(room, seat, R.botTrump(G.hands[seat])), 'botTrump');
   }
   if(G.phase==='drawing'){
     const seat = waitingOn(G).find(p => isBot(room, p));
@@ -375,7 +383,7 @@ function drive(room){
     const seat = G.turn;
     if(!G.trick.length){
       const max = R.declarable(G.hands[seat], G.trump, 5-G.trickNo);
-      if(max) return later(room, 700, () => declare(room, seat, max));
+      if(max) return later(room, 700, () => declare(room, seat, max), 'botDeclare');
     }
     return later(room, 750, () => {
       const kept = p => (G.drawInfo && G.drawInfo[p]) ? G.drawInfo[p].kept : null;
@@ -387,7 +395,7 @@ function drive(room){
       });
       if(!card){ console.error('[bug] no legal card for seat', seat, 'hand', G.hands[seat].length); return; }
       playCard(room, seat, card.id);
-    });
+    }, 'botPlay');
   }
 }
 
@@ -592,6 +600,7 @@ setInterval(() => {
    scheduled but still owes somebody an action. */
 setInterval(() => {
   for(const r of rooms.values()){
+   try{
     const G = r.G;
     if(!G || r.timer) continue;                    // a beat is already on its way
     if(G.resolving && G.decl && G.decl.turn === null){
@@ -609,6 +618,7 @@ setInterval(() => {
     } else {
       drive(r);
     }
+   }catch(e){ console.error('[watchdog] room', r.code, e); }   // never take the server down
   }
 }, 2500);
 

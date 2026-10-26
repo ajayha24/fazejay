@@ -143,7 +143,7 @@ function renderSeats(){
   for(let pos=0;pos<4;pos++){
     const seat=seatAt(pos), box=el('seatBox'+pos), p=V.seats[seat];
     const isTurn=((V.phase==='bidding'||V.phase==='playing')&&V.turn===seat)
-               ||(V.phase==='drawing'&&V.drawingWho===seat);
+               ||(V.phase==='drawing'&&V.drawers&&V.drawers.includes(seat)&&!V.ready[seat]);
     let chip='';
     if(V.phase==='bidding'||V.phase==='naming'){
       const b=V.bids[seat];
@@ -358,14 +358,18 @@ function renderPromptAndBar(){
          GLYPH[s]+'<span class="nm">'+SUITNAME[s]+'</span></button>').join('');
     msg=(V.highBid.stuck?'Nobody bid, so it’s on you. ':'')+'You need <strong>'+quotaFor(V.highBid.value)+' of 6</strong>.';
   }
-  else if(V.phase==='drawing'&&V.drawingWho===me){
+  else if(V.phase==='drawing'&&V.drawers&&V.drawers.includes(me)&&!V.iAmReady){
     const n=discardSel.size;
     cue='<span class="cue">Click cards to throw away</span>';
-    btns='<button class="btn solid" data-act="draw">'+(n?'Throw '+n+' &amp; draw '+n:'Stand pat')+'</button>'+
+    btns='<button class="btn solid" data-act="draw">'+(n?'Lock in — throw '+n:'Stand pat')+'</button>'+
          (n?'<button class="btn quiet" data-act="clear">Clear</button>':'');
-    msg='<strong>'+SUITNAME[V.trump]+' '+GLYPH[V.trump]+'</strong> is trump — keep what helps.';
+    msg='<strong>'+SUITNAME[V.trump]+' '+GLYPH[V.trump]+'</strong> is trump — keep what helps. Everyone picks at once.';
   }
-  else if(V.phase==='drawing'&&V.drawingWho!==null) msg='<strong>'+nameOf(V.drawingWho)+'</strong> is discarding.';
+  else if(V.phase==='drawing'){
+    msg=V.waitingCount
+      ? 'Locked in — waiting on <strong>'+V.waitingCount+'</strong> more.'
+      : 'Dealing from the dealer’s left…';
+  }
   else if(V.mustPlay){
     const need=V.mustPlay.count, t=V.mustPlay.trumps;
     const chosen=[...discardSel];
