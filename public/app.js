@@ -539,12 +539,12 @@ function paintLobby(){
       (host
         ? '<h4 style="margin:16px 0 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600">Kitty</h4>'+
           '<div class="deckrow" id="kittyRow">'+
-          [[0,'Off'],[3,'3 cards'],[5,'5 cards']].map(k=>
+          [[0,'Off'],[3,'On']].map(k=>
             '<button class="deckopt" data-kitty="'+k[0]+'" aria-pressed="'+(Number(V.settings.kitty||0)===k[0])+'">'+
             '<span class="nm">'+k[1]+'</span></button>').join('')+'</div>'+
-          '<p class="dek" style="margin:6px 0 0;font-size:12px">Dealt face down for whoever buys the hand. With a kitty in play the dealer cannot hold the bid.</p>'
+          '<p class="dek" style="margin:6px 0 0;font-size:12px">Three cards face down for whoever buys the hand. With a kitty in play the dealer cannot hold the bid.</p>'
         : '<p class="dek" style="margin:14px 0 0;font-size:12.5px">Kitty: <b>'+
-          (V.settings.kitty? V.settings.kitty+' cards':'off')+'</b></p>')+
+          (V.settings.kitty? 'on':'off')+'</b></p>')+
       '<h4 style="margin:16px 0 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600">Your deck</h4>'+
       deckPicker()+
       (myTeam?'<p class="waiting" style="margin:10px 0 0">You’re on <b style="color:var(--sage)">'+myTeam+'</b></p>':'')+
@@ -641,7 +641,7 @@ el('btnRules').onclick=()=>{
   '<li>Five cards each, three then two, from the dealer’s left.</li>'+
   '<li>One round. Raise or pass — <b>only the dealer can take it at the standing number</b>. A 30 ends it on the spot.</li>'+
   '<li>Passed all the way round and <b>the dealer is stuck at 15</b>.</li>'+
-  '<li><b>Kitty</b> (optional): three or five cards go face down in the middle. Whoever buys the hand takes them in and then comes back down to five. With a kitty in play the dealer <b>cannot</b> hold the bid.</li>'+
+  '<li><b>Kitty</b> (optional): three cards go face down in the middle. Whoever buys the hand takes them in and then comes back down to five. With a kitty in play the dealer <b>cannot</b> hold the bid.</li>'+
   '<li>The bidder names trump, then <b>everyone</b> discards and draws back up to five. A <b>30 is played as dealt</b>.</li>'+
   '<li>The bidder leads; after that whoever wins a trick leads the next.</li></ul>'+
   '<h4>Leading the top trumps together</h4><ul>'+
@@ -670,10 +670,9 @@ el('btnSettings').onclick=()=>{
   '<p class="dek">Host only. Changes apply from the next hand.</p>'+
   '<div class="setting"><span class="k">Play to</span><input type="number" id="sTarget" min="6" max="200" value="'+s.target+'"></div>'+
   '<div class="setting"><span class="k">Defenders bank their units</span><select id="sDef"><option value="1"'+(s.defendersScore?' selected':'')+'>Yes</option><option value="0"'+(!s.defendersScore?' selected':'')+'>No</option></select></div>'+
-  '<div class="setting"><span class="k">Kitty<small>Cards dealt face down for whoever buys the hand.</small></span>'+
+  '<div class="setting"><span class="k">Kitty<small>Three cards face down for whoever buys the hand. The dealer cannot hold the bid.</small></span>'+
     '<select id="sKitty"><option value="0"'+(!s.kitty?' selected':'')+'>Off</option>'+
-    '<option value="3"'+(s.kitty===3?' selected':'')+'>3 cards</option>'+
-    '<option value="5"'+(s.kitty===5?' selected':'')+'>5 cards</option></select></div>'+
+    '<option value="3"'+(s.kitty?' selected':'')+'>On</option></select></div>'+
   '<div class="setting"><span class="k">Discard &amp; draw</span><select id="sDraw"><option value="everyone"'+(s.draw==='everyone'?' selected':'')+'>Everyone</option><option value="bidder"'+(s.draw==='bidder'?' selected':'')+'>Bidder only</option><option value="none"'+(s.draw==='none'?' selected':'')+'>Nobody</option></select></div>'+
   '<div class="setting"><span class="k">Enforce reneging</span><select id="sRen"><option value="1"'+(s.enforceRenege?' selected':'')+'>Yes</option><option value="0"'+(!s.enforceRenege?' selected':'')+'>No</option></select></div>'+
   '<div class="setting"><span class="k">Dealer may hold</span><select id="sHold"><option value="1"'+(s.dealerHold?' selected':'')+'>Yes</option><option value="0"'+(!s.dealerHold?' selected':'')+'>No</option></select></div>'+

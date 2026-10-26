@@ -584,7 +584,7 @@ wss.on('connection', ws => {
       case 'settings': {
         if(!host) return;
         const up = m.settings || {};
-        if(up.kitty!==undefined) up.kitty = [0,3,5].includes(Number(up.kitty)) ? Number(up.kitty) : 0;
+        if(up.kitty!==undefined) up.kitty = Number(up.kitty) ? 3 : 0;   // on means three cards
         Object.assign(room.settings, up);
         return push(room);
       }
