@@ -100,7 +100,7 @@ function render(){
       (V.phase==='bidding'&&V.turn===V.mySeat) ||
       (V.phase==='playing'&&V.turn===V.mySeat&&V.legal&&V.legal.length) ||
       (V.phase==='naming'&&V.highBid.seat===V.mySeat) ||
-      (V.phase==='drawing'&&V.drawingWho===V.mySeat));
+      (V.phase==='drawing'&&V.drawingWho===V.mySeat) || !!V.mustPlay);
   document.querySelector('.board').classList.toggle('myturn', !!myTurn);
   el('tableTag').innerHTML = myTurn
     ? '<span class="turnflag"><span class="pip"></span>Your turn</span>'
@@ -178,6 +178,21 @@ function renderSeats(){
 }
 
 function renderWell(){
+  if(V.decl){
+    for(let pos=0;pos<4;pos++){
+      const seat=seatAt(pos), slot=el('slot'+pos);
+      const cards=V.decl.cards[seat]||[];
+      slot.innerHTML=cards.length
+        ? '<div class="stack">'+cards.map(c=>cardHTML(c,{small:true,trump:isTrumpC(c),cls:'played'})).join('')+
+          (seat===V.decl.leader?'<span class="tag led">declared</span>':'')+'</div>'
+        : '';
+    }
+    el('wellinfo').innerHTML='<span class="lbl">Declared</span>'+
+      '<span class="trumpmark'+(RED[V.trump]?' red':'')+'">'+GLYPH[V.trump]+'</span>'+
+      '<span class="trumpname">'+V.decl.count+' tricks</span>'+
+      '<span class="lbl">'+nameOf(V.decl.leader)+'</span>';
+    return;
+  }
   for(let pos=0;pos<4;pos++){
     const seat=seatAt(pos), slot=el('slot'+pos);
     const play=V.trick.find(x=>x.seat===seat);
@@ -275,14 +290,15 @@ function renderHand(){
   const h=el('hand');
   if(V.mySeat===null||!V.hand){ h.innerHTML=''; return; }
   const discarding=V.phase==='drawing'&&V.drawingWho===V.mySeat;
+  const contributing=!!V.mustPlay;
   const anim=dealing()&&V.phase==='bidding'?dealDelays()[V.mySeat]:null;
   let given=0;
   h.className='hand'+(V.legal&&V.legal.length?' live':'');
   h.innerHTML=V.hand.map((c,idx)=>{
     let cls='';
-    if(discarding) cls='playable'+(discardSel.has(c.id)?' picked':'');
+    if(discarding||contributing) cls='playable'+(discardSel.has(c.id)?' picked':'');
     else if(V.legal) cls=V.legal.includes(c.id)?'playable':'blocked';
-    const disabled=V.legal&&!V.legal.includes(c.id);
+    const disabled=!contributing&&V.legal&&!V.legal.includes(c.id);
     let style='';
     if(anim){
       // find which packet this card arrived in
@@ -296,12 +312,18 @@ function renderHand(){
       .replace(/<\/span>$/,'</button>');
   }).join('');
   h.querySelectorAll('button[data-id]').forEach(b=>b.onclick=()=>{
-    if(discarding){
-      discardSel.has(b.dataset.id)?discardSel.delete(b.dataset.id):discardSel.add(b.dataset.id);
+    const id=b.dataset.id;
+    if(contributing){                       // choosing cards for someone's declaration
+      if(discardSel.has(id)) discardSel.delete(id);
+      else if(discardSel.size < V.mustPlay.count) discardSel.add(id);
       renderHand(); renderPromptAndBar(); return;
     }
-    if(!V.legal||!V.legal.includes(b.dataset.id)) return;
-    send({type:'play', cardId:b.dataset.id});
+    if(discarding){
+      discardSel.has(id)?discardSel.delete(id):discardSel.add(id);
+      renderHand(); renderPromptAndBar(); return;
+    }
+    if(!V.legal||!V.legal.includes(id)) return;
+    send({type:'play', cardId:id});
   });
 }
 
@@ -337,7 +359,27 @@ function renderPromptAndBar(){
     msg='<strong>'+SUITNAME[V.trump]+' '+GLYPH[V.trump]+'</strong> is trump — keep what helps.';
   }
   else if(V.phase==='drawing'&&V.drawingWho!==null) msg='<strong>'+nameOf(V.drawingWho)+'</strong> is discarding.';
+  else if(V.mustPlay){
+    const need=V.mustPlay.count, t=V.mustPlay.trumps;
+    const chosen=[...discardSel];
+    const chosenTrumps=chosen.filter(id=>{const c=V.hand.find(x=>x.id===id);return c&&isTrumpC(c);}).length;
+    const ok=chosen.length===need&&chosenTrumps===t;
+    cue='<span class="cue">'+nameOf(V.decl.leader)+' declared — play <b>'+need+'</b>'+
+        (t?', including <b>'+t+'</b> trump'+(t>1?'s':''):'')+'</span>';
+    btns='<button class="btn solid" data-act="contrib"'+(ok?'':' disabled style="opacity:.45"')+'>'+
+         'Play '+chosen.length+' of '+need+'</button>'+
+         (chosen.length?'<button class="btn quiet" data-act="clear">Clear</button>':'');
+    msg=t? 'You hold '+t+' trump'+(t>1?'s':'')+' — '+(t===1?'it has':'they have')+' to go in.'
+         : 'No trumps — any '+need+' cards will do.';
+  }
   else if(V.phase==='playing'&&V.turn===me){
+    if(V.canDeclare){
+      const names=V.canDeclare===3?'5 + J + A♥':'5 + J';
+      cue='<span class="cue">Your lead</span>';
+      btns='<button class="btn solid" data-act="declare" data-v="'+V.canDeclare+'">Lead '+names+
+           ' together <span style="opacity:.7;font-weight:400">· '+V.canDeclare+' tricks</span></button>'+
+           '<span class="sep"></span>';
+    }
     msg=V.trick.length===0?'Your lead.'
       :(V.legal&&V.legal.length<V.hand.length
         ?'Follow <strong>'+(effC(V.trick[0].card)===V.trump?'trump '+GLYPH[V.trump]:SUITNAME[effC(V.trick[0].card)]+' '+GLYPH[effC(V.trick[0].card)])+'</strong>.'
@@ -358,6 +400,8 @@ function renderPromptAndBar(){
     else if(a==='trump') send({type:'trump', suit:b.dataset.v});
     else if(a==='clear'){ discardSel.clear(); renderHand(); renderPromptAndBar(); }
     else if(a==='draw'){ send({type:'discard', ids:[...discardSel]}); discardSel.clear(); }
+    else if(a==='declare'){ discardSel.clear(); send({type:'declare', count:+b.dataset.v}); }
+    else if(a==='contrib'){ send({type:'contribute', ids:[...discardSel]}); discardSel.clear(); }
   });
 }
 
@@ -485,6 +529,11 @@ el('btnRules').onclick=()=>{
   '<li>Passed all the way round and <b>the dealer is stuck at 15</b>.</li>'+
   '<li>The bidder names trump, then <b>everyone</b> discards and draws back up to five. A <b>30 is played as dealt</b>.</li>'+
   '<li>The bidder leads; after that whoever wins a trick leads the next.</li></ul>'+
+  '<h4>Leading the top trumps together</h4><ul>'+
+  '<li>On your lead, holding the <b>5 and the jack</b> of trump, you may lay both down at once. Everyone else then plays <b>two</b> cards. With the <b>ace of hearts</b> as well you may lead all three, and everyone plays <b>three</b>.</li>'+
+  '<li>It scores as that many tricks and they all go to you — nothing outranks the 5, so the high trump is yours too.</li>'+
+  '<li>Following it, you must put in <b>as many trumps as you hold</b>, up to the number led — but never your best ones, any trumps will do. Two trumps and both go in; one trump and it goes in plus any other card; none and any cards will do.</li>'+
+  '<li>Only legal with enough tricks left to cover it, and always your choice.</li></ul>'+
   '<h4>Rank of cards</h4><ul>'+
   '<li><b>Trump, black:</b> 5, J, A♥, A, K, Q, 2, 3, 4, 6, 7, 8, 9, 10</li>'+
   '<li><b>Trump, hearts:</b> 5, J, A, K, Q, 10 … 2</li>'+

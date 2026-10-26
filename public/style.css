@@ -450,3 +450,8 @@ html,body{min-height:100%}
   .rail{overflow:visible}
   .log{max-height:200px;flex:none}
 }
+
+.stack{position:relative;display:flex;gap:3px;align-items:flex-end}
+.stack .card.sm{--card-w:34px;--card-h:50px;width:34px;height:50px}
+.stack .card.sm .r{font-size:9px}.stack .card.sm .s{font-size:7px}.stack .card.sm .big{font-size:14px}
+.stack .tag{position:absolute;left:50%;transform:translateX(-50%);bottom:-9px}

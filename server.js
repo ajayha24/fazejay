@@ -98,6 +98,7 @@ function dealHand(room){
   G.drawInfo = [null,null,null,null];
   G.result = null;
   G.resolving = false;
+  G.decl = null;
   G.phase = 'bidding';
   G.turn = (G.dealer+1)%4;
   log(room, 'Hand '+G.handNo+' — <b>'+nameOf(room,G.dealer)+'</b> deals, <b>'+nameOf(room,(G.dealer+1)%4)+'</b> opens the bidding.', 'deal');
@@ -213,6 +214,52 @@ function playCard(room, seat, cardId){
   push(room); drive(room);
 }
 
+/* ---------------- leading the top trumps together ---------------- */
+function declare(room, seat, count){
+  const G = room.G;
+  if(G.phase!=='playing' || G.turn!==seat || G.trick.length || G.resolving) return;
+  const max = R.declarable(G.hands[seat], G.trump, 5-G.trickNo);
+  if(!count || count > max) return;
+  const cards = R.declareCards(G.hands[seat], G.trump, count);
+  const ids = new Set(cards.map(c => c.id));
+  G.hands[seat] = G.hands[seat].filter(c => !ids.has(c.id));
+  G.decl = {leader:seat, count, cards:[[],[],[],[]], turn:(seat+1)%4};
+  G.decl.cards[seat] = cards;
+  log(room, '<b>'+nameOf(room,seat)+'</b> leads '+cards.map(c => c.r+R.GLYPH[c.s]).join(' + ')+
+            ' — everyone plays '+count+'.', 'hi');
+  G.phase = 'declaring';
+  push(room); drive(room);
+}
+
+function contribute(room, seat, ids){
+  const G = room.G;
+  if(G.phase!=='declaring' || !G.decl || G.decl.turn!==seat) return;
+  if(!R.validContribution(G.hands[seat], G.trump, G.decl.count, ids)) return;
+  const set = new Set(ids);
+  G.decl.cards[seat] = G.hands[seat].filter(c => set.has(c.id));
+  G.hands[seat] = G.hands[seat].filter(c => !set.has(c.id));
+  log(room, '<b>'+nameOf(room,seat)+'</b> plays '+
+            G.decl.cards[seat].map(c => c.r+R.GLYPH[c.s]).join(' ')+'.');
+  const next = (seat+1)%4;
+  if(next === G.decl.leader){ G.resolving = true; push(room); return later(room, 1600, () => resolveDeclare(room)); }
+  G.decl.turn = next;
+  push(room); drive(room);
+}
+
+function resolveDeclare(room){
+  const G = room.G, d = G.decl;
+  G.resolving = false;
+  G.units[teamOf(d.leader)] += d.count;
+  // Nothing outranks the 5, so the leader also owns the high trump.
+  G.highTrump = {card:d.cards[d.leader][0], seat:d.leader};
+  G.trickNo += d.count;
+  log(room, '<b>'+nameOf(room,d.leader)+'</b> takes '+d.count+' tricks on the declaration.');
+  G.decl = null; G.phase = 'playing'; G.trick = [];
+  G.leader = d.leader; G.turn = d.leader;
+  if(G.trickNo >= 5) return scoreHand(room);
+  push(room); drive(room);
+}
+
 function finishTrick(room){
   const G = room.G;
   G.resolving = false;
@@ -266,7 +313,9 @@ function nextHand(room){
 }
 
 /* ---------------- bot driver ---------------- */
+const SPEED = Math.max(1, Number(process.env.SPEED) || 1);   // >1 speeds up bot pacing, for tests
 function later(room, ms, fn){
+  ms = Math.max(20, Math.round(ms / SPEED));
   clearTimeout(room.timer);
   room.timer = setTimeout(() => { room.timer = null; try{ fn(); }catch(e){ console.error(e); } }, ms);
 }
@@ -294,8 +343,17 @@ function drive(room){
     const seat = G.drawingWho;
     return later(room, 560, () => doDiscard(room, seat, R.botDiscard(G.hands[seat], G.trump)));
   }
+  if(G.phase==='declaring' && G.decl && isBot(room, G.decl.turn)){
+    const seat = G.decl.turn;
+    return later(room, 620, () =>
+      contribute(room, seat, R.botContribution(G.hands[seat], G.trump, G.decl.count)));
+  }
   if(G.phase==='playing' && isBot(room, G.turn)){
     const seat = G.turn;
+    if(!G.trick.length){
+      const max = R.declarable(G.hands[seat], G.trump, 5-G.trickNo);
+      if(max) return later(room, 700, () => declare(room, seat, max));
+    }
     return later(room, 750, () => {
       const kept = p => (G.drawInfo && G.drawInfo[p]) ? G.drawInfo[p].kept : null;
       const sum = (a,b) => (kept(a)==null||kept(b)==null) ? null : kept(a)+kept(b);
@@ -349,6 +407,14 @@ function viewFor(room, mySeat){
     // Only ever your own cards leave the server.
     hand: mySeat===null ? [] : G.hands[mySeat],
     resolving: !!G.resolving,
+    decl: G.decl ? {leader:G.decl.leader, count:G.decl.count, turn:G.decl.turn,
+                    cards:G.decl.cards} : null,
+    canDeclare: (mySeat!==null && G.phase==='playing' && G.turn===mySeat &&
+                 !G.trick.length && !G.resolving)
+      ? R.declarable(G.hands[mySeat], G.trump, 5-G.trickNo) : 0,
+    mustPlay: (mySeat!==null && G.phase==='declaring' && G.decl && G.decl.turn===mySeat)
+      ? {count:Math.min(G.decl.count, G.hands[mySeat].length),
+         trumps:R.requiredTrumps(G.hands[mySeat], G.trump, G.decl.count)} : null,
     legal: (mySeat!==null && G.phase==='playing' && G.turn===mySeat && !G.resolving)
       ? R.legalMoves(G.hands[mySeat], G.trick, G.trump, room.settings.enforceRenege).map(c => c.id)
       : null
@@ -455,6 +521,12 @@ wss.on('connection', ws => {
       case 'play':
         if(seat!==null) playCard(room, seat, m.cardId);
         return;
+      case 'declare':
+        if(seat!==null) declare(room, seat, Number(m.count));
+        return;
+      case 'contribute':
+        if(seat!==null) contribute(room, seat, m.ids);
+        return;
       case 'next':
         if(seat!==null) nextHand(room);
         return;
@@ -495,7 +567,10 @@ setInterval(() => {
   for(const r of rooms.values()){
     const G = r.G;
     if(!G || r.timer) continue;                    // a beat is already on its way
-    if(G.resolving && G.trick.length === 4){
+    if(G.resolving && G.decl && G.decl.turn === G.decl.leader){
+      console.warn('[watchdog] lost declaration beat, room', r.code);
+      resolveDeclare(r);
+    } else if(G.resolving && G.trick.length === 4){
       console.warn('[watchdog] lost end-of-trick beat, room', r.code);
       finishTrick(r);
     } else if(G.phase === 'shuffling'){

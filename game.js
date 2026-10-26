@@ -236,7 +236,51 @@ function botPlay(hand, trick, t, ctx){
   return (modest.length ? modest : cheapest)[0];
 }
 
+/* ============================================================
+   Leading the top trumps together ("declaring").
+   Holding the 5 and the jack you may lead both at once and everyone plays two
+   cards; with the ace of hearts as well you may lead all three for three.
+   It scores as that many tricks, all of them to the leader.
+   ============================================================ */
+
+// How many cards you may declare, given the tricks still to play. 0 = you can't.
+function declarable(hand, t, tricksLeft){
+  const ids = new Set(hand.map(c => c.id));
+  const five = ids.has('5'+t), jack = ids.has('J'+t), ah = ids.has('AH');
+  if(five && jack && ah && tricksLeft >= 3) return 3;
+  if(five && jack && tricksLeft >= 2) return 2;
+  return 0;
+}
+// The cards that go down, in rank order: the 5, the jack, then the ace of hearts.
+function declareCards(hand, t, count){
+  const want = ['5'+t, 'J'+t, 'AH'].slice(0, count);
+  return want.map(id => hand.find(c => c.id === id)).filter(Boolean);
+}
+// You must contribute as many trumps as you hold, up to the count — but never
+// your best ones: any trumps will do.
+function requiredTrumps(hand, t, count){
+  return Math.min(count, hand.filter(c => isTrump(c,t)).length);
+}
+function validContribution(hand, t, count, ids){
+  const want = Math.min(count, hand.length);
+  if(!Array.isArray(ids) || ids.length !== want) return false;
+  if(new Set(ids).size !== ids.length) return false;
+  const picked = ids.map(id => hand.find(c => c.id === id));
+  if(picked.some(c => !c)) return false;
+  return picked.filter(c => isTrump(c,t)).length === requiredTrumps(hand, t, count);
+}
+function botContribution(hand, t, count){
+  const need = requiredTrumps(hand, t, count);
+  const trumps = hand.filter(c => isTrump(c,t)).sort((a,b) => trumpStrength(a,t)-trumpStrength(b,t));
+  const others = hand.filter(c => !isTrump(c,t)).sort((a,b) => plainStrength(a)-plainStrength(b));
+  const out = trumps.slice(0, need);                 // lowest trumps, keep the good ones
+  const rest = others.concat(trumps.slice(need));
+  while(out.length < Math.min(count, hand.length)) out.push(rest.shift());
+  return out.map(c => c.id);
+}
+
 module.exports = {
+  declarable, declareCards, requiredTrumps, validContribution, botContribution,
   SUITS, GLYPH, SUITNAME, RED, RANKS, TRUMP_ORDER, PLAIN_ORDER, TOP3,
   fullDeck, shuffle, isTrump, trumpStrength, plainStrength, effSuit, power,
   quotaFor, sortForDisplay, legalMoves, trickWinner,
