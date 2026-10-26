@@ -435,16 +435,20 @@ html,body{min-height:100%}
 .plate.active{animation:plateglow 2.2s ease-in-out infinite}
 @keyframes plateglow{0%,100%{box-shadow:0 0 0 3px rgba(207,161,78,.12)}50%{box-shadow:0 0 0 5px rgba(207,161,78,.30)}}
 
-/* ---------- dealing ---------- */
-.card.dealt{animation:dealin .34s cubic-bezier(.2,.8,.3,1) backwards}
-@keyframes dealin{
-  from{transform:translate(var(--dx,0),var(--dy,-220px)) rotate(var(--dr,-12deg)) scale(.7);opacity:0}
-  to{transform:none;opacity:1}
+/* ---------- dealing ----------
+   Cards fly from the dealer's seat to yours. Only transform and opacity are
+   animated so the whole deal stays on the compositor. */
+.card.dealt,.back.dealt{
+  animation:dealin 300ms cubic-bezier(.22,.72,.28,1) backwards;
+  will-change:transform,opacity;
 }
-.back.dealt{animation:dealback .3s cubic-bezier(.2,.8,.3,1) backwards}
-@keyframes dealback{
-  from{transform:translate(var(--dx,0),var(--dy,180px)) scale(.7);opacity:0}
-  to{transform:none;opacity:1}
+@keyframes dealin{
+  0%  {transform:translate3d(var(--dx,0),var(--dy,-220px),0) rotate(var(--dr,0deg)) scale(.86);opacity:0}
+  18% {opacity:1}
+  100%{transform:translate3d(0,0,0) rotate(0deg) scale(1);opacity:1}
+}
+@media (prefers-reduced-motion:reduce){
+  .card.dealt,.back.dealt{animation:none}
 }
 @media (max-width:760px){
   .app{height:auto;overflow:visible}
@@ -480,3 +484,86 @@ html,body{min-height:100%}
   .turnbanner{font-size:clamp(26px,9vw,40px)}
   .felt{grid-template-columns:84px minmax(0,1fr) 84px}
 }
+
+/* ============================================================
+   Deck styles. Everything is drawn in CSS — no image downloads,
+   nothing to license, nothing that can fail to load.
+   ============================================================ */
+
+/* --- Kitchen: the house deck, warm ivory and a soft serif --- */
+[data-deck="kitchen"]{
+  --face:linear-gradient(170deg,#fbf8f0,#f4efe3 55%,#ddd3bd);
+  --face-ink:#1a1511; --face-red:#b23b2c; --face-edge:rgba(26,21,17,.3);
+  --face-font:"Libre Baskerville",Georgia,serif; --face-weight:700;
+  --back:repeating-linear-gradient(45deg,rgba(0,0,0,.22) 0 3px,transparent 3px 6px),
+         linear-gradient(160deg,#5d2a28,#3c1b1a);
+  --back-edge:rgba(244,239,227,.22);
+}
+/* --- Bicycle: crisp white, heavy sans, classic red back --- */
+[data-deck="bicycle"]{
+  --face:linear-gradient(180deg,#ffffff,#f7f7f5);
+  --face-ink:#121212; --face-red:#cc1f1f; --face-edge:rgba(0,0,0,.28);
+  --face-font:"Archivo",Helvetica,Arial,sans-serif; --face-weight:700;
+  --back:radial-gradient(circle at 50% 50%,rgba(255,255,255,.18) 0 2px,transparent 2px),
+         repeating-linear-gradient(0deg,rgba(255,255,255,.10) 0 2px,transparent 2px 7px),
+         linear-gradient(145deg,#c0392b,#8e2420);
+  --back-edge:rgba(255,255,255,.55);
+  --back-size:9px 9px,auto,auto;
+}
+/* --- Midnight: dark faces, pale pips --- */
+[data-deck="midnight"]{
+  --face:linear-gradient(170deg,#243b45,#16252c 60%,#101b21);
+  --face-ink:#e8eef1; --face-red:#ff7a6b; --face-edge:rgba(255,255,255,.22);
+  --face-font:"Archivo",Helvetica,Arial,sans-serif; --face-weight:600;
+  --back:repeating-linear-gradient(135deg,rgba(255,255,255,.07) 0 6px,transparent 6px 12px),
+         linear-gradient(150deg,#1d3b4a,#0d1a21);
+  --back-edge:rgba(170,200,214,.35);
+}
+/* --- Linen: cream letterpress, warm woven back --- */
+[data-deck="linen"]{
+  --face:linear-gradient(170deg,#fdfaf2,#f2ead6);
+  --face-ink:#2e2a21; --face-red:#a8442f; --face-edge:rgba(46,42,33,.25);
+  --face-font:"Fraunces",Georgia,serif; --face-weight:600;
+  --back:repeating-linear-gradient(0deg,rgba(80,66,46,.16) 0 1px,transparent 1px 5px),
+         repeating-linear-gradient(90deg,rgba(80,66,46,.16) 0 1px,transparent 1px 5px),
+         linear-gradient(160deg,#9a8a63,#6f6245);
+  --back-edge:rgba(253,250,242,.4);
+}
+/* --- Neon: arcade contrast --- */
+[data-deck="neon"]{
+  --face:linear-gradient(170deg,#15151f,#0c0c14);
+  --face-ink:#5ef2c4; --face-red:#ff4d8d; --face-edge:rgba(94,242,196,.45);
+  --face-font:"Archivo",Helvetica,Arial,sans-serif; --face-weight:700;
+  --back:repeating-linear-gradient(45deg,rgba(94,242,196,.16) 0 4px,transparent 4px 10px),
+         linear-gradient(150deg,#241546,#12091f);
+  --back-edge:rgba(94,242,196,.5);
+}
+
+/* apply whichever deck is selected */
+.card{background:var(--face);color:var(--face-ink);border-color:var(--face-edge);
+      font-family:var(--face-font)}
+.card .r{font-weight:var(--face-weight)}
+.card.red{color:var(--face-red)}
+.back{background:var(--back);background-size:var(--back-size,auto);
+      border-color:var(--back-edge)}
+
+/* the picker */
+.deckrow{display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 2px}
+.deckopt{
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  background:transparent;border:1px solid var(--line);border-radius:11px;
+  padding:9px 11px;cursor:pointer;min-width:84px;
+}
+.deckopt:hover{border-color:var(--brass-dim)}
+.deckopt[aria-pressed="true"]{border-color:var(--brass);background:rgba(207,161,78,.1)}
+.deckopt .nm{font-size:12.5px;color:var(--text);letter-spacing:.02em}
+.deckswatch{display:flex;gap:4px}
+.deckswatch i{width:26px;height:38px;border-radius:4px;border:1px solid;display:block}
+.deckswatch i.f{background:var(--sw-face);border-color:var(--sw-edge);
+  position:relative;font-style:normal;font-size:11px;line-height:38px;text-align:center;
+  color:var(--sw-red);font-family:var(--sw-font);font-weight:700}
+.deckswatch i.b{background:var(--sw-back);background-size:var(--sw-backsize,auto);border-color:var(--sw-backedge)}
+
+/* the kitty waiting in the middle of the table */
+.kitty{display:flex;gap:4px;margin:6px 0 2px}
+.kitty .back{margin:0;width:26px;height:37px}

@@ -41,7 +41,7 @@ function newCode(){
 }
 
 const DEFAULTS = { target:31, defendersScore:true, setPenalty:'quota',
-                   enforceRenege:true, dealerHold:true, draw:'everyone', thirdHigh:'probe' };
+                   enforceRenege:true, dealerHold:true, draw:'everyone', kitty:0, thirdHigh:'probe' };
 
 function createRoom(){
   const code = newCode();
@@ -88,6 +88,10 @@ function dealHand(room){
       for(let n=0;n<chunk;n++) G.hands[p].push(d.pop());
     }
   for(let p=0;p<4;p++) G.hands[p].sort(R.sortForDisplay(null));
+  // The kitty: cards face down in the middle for whoever buys the hand.
+  G.kitty = [];
+  const kn = Number(room.settings.kitty) || 0;
+  for(let i=0;i<kn && d.length;i++) G.kitty.push(d.pop());
   G.stock = d;
   G.bids = [null,null,null,null];
   G.highBid = null; G.trump = null;
@@ -107,12 +111,16 @@ function dealHand(room){
   push(room); drive(room);
 }
 
+/* The dealer may take the bid at the standing number — but not when a kitty is
+   in play, where buying it for nothing would be far too strong. */
+const holdAllowed = room => room.settings.dealerHold && !Number(room.settings.kitty);
+
 function placeBid(room, seat, value, isHold){
   const G = room.G;
   if(G.phase!=='bidding' || G.turn!==seat) return;
   const cur = G.highBid ? G.highBid.value : 0;
   if(value !== null){
-    const holdOk = isHold && room.settings.dealerHold && seat===G.dealer && G.highBid && value===cur;
+    const holdOk = isHold && holdAllowed(room) && seat===G.dealer && G.highBid && value===cur;
     if(!holdOk && !(value>cur && [15,20,25,30].includes(value))) return;
     G.bids[seat] = value;
     G.highBid = {value, seat};
@@ -148,9 +156,24 @@ function nameTrump(room, seat, t){
             ' — needs '+R.quotaFor(G.highBid.value)+' of 6.', 'hi');
 
   const s = room.settings;
+  if(G.kitty && G.kitty.length){
+    G.hands[G.highBid.seat] = G.hands[G.highBid.seat].concat(G.kitty);
+    G.hands[G.highBid.seat].sort(R.sortForDisplay(t));
+    log(room, '<b>'+nameOf(room,G.highBid.seat)+'</b> takes the kitty — '+
+              G.kitty.length+' card'+(G.kitty.length>1?'s':'')+'.');
+    G.kitty = [];
+  }
   const drawers = (G.highBid.value===30 || s.draw==='none') ? []
                 : s.draw==='bidder' ? [G.highBid.seat] : [0,1,2,3];
-  if(!drawers.length) return startPlay(room);
+  if(!drawers.length){
+    if(G.hands[G.highBid.seat].length > 5){     // took a kitty on a 30
+      G.drawers = [G.highBid.seat];
+      G.pending = [null,null,null,null];
+      G.phase = 'drawing';
+      push(room); return drive(room);
+    }
+    return startPlay(room);
+  }
   G.drawers = drawers;
   G.pending = [null,null,null,null];          // each player's chosen discards
   G.phase = 'drawing';
@@ -166,6 +189,7 @@ function doDiscard(room, seat, ids){
   const list = Array.isArray(ids) ? ids : [];
   if(new Set(list).size !== list.length) return;
   if(!list.every(id => G.hands[seat].some(c => c.id===id))) return;
+  if(G.hands[seat].length - list.length > 5) return;   // must come down to five
   G.pending[seat] = list;                     // locked in, but nothing is dealt yet
   log(room, '<b>'+nameOf(room,seat)+'</b> is ready.');
   if(waitingOn(G).length){ push(room); return drive(room); }
@@ -377,7 +401,8 @@ function drive(room){
   if(G.phase==='bidding' && isBot(room, G.turn)){
     const seat = G.turn;
     return later(room, 700, () => {
-      const b = R.botBid(G.hands[seat], {highBid:G.highBid, seat, isDealer:seat===G.dealer, dealerHold:s.dealerHold});
+        const b = R.botBid(G.hands[seat], {highBid:G.highBid, seat,
+        isDealer:seat===G.dealer, dealerHold:holdAllowed(room)});
       placeBid(room, seat, b.value, b.hold);
     }, 'botBid');
   }
@@ -388,7 +413,16 @@ function drive(room){
   if(G.phase==='drawing'){
     const seat = waitingOn(G).find(p => isBot(room, p));
     if(seat !== undefined)
-      return later(room, 420, () => doDiscard(room, seat, R.botDiscard(G.hands[seat], G.trump)));
+      return later(room, 420, () => {
+        let ids = R.botDiscard(G.hands[seat], G.trump);
+        const over = G.hands[seat].length - ids.length - 5;
+        if(over > 0){                           // holding a kitty: shed the weakest trumps too
+          const keep = G.hands[seat].filter(c => !ids.includes(c.id))
+            .sort((x,y) => R.power(y,G.trump) - R.power(x,G.trump));
+          ids = ids.concat(keep.slice(5).map(c => c.id));
+        }
+        doDiscard(room, seat, ids);
+      });
     return;                                    // only humans left to lock in
   }
   if(G.phase==='declaring' && G.decl && isBot(room, G.decl.turn)){
@@ -424,6 +458,7 @@ function viewFor(room, mySeat){
   const base = {
     code: room.code,
     settings: room.settings,
+    holdAllowed: holdAllowed(room),
     mySeat,
     isHost: false,
     seats: room.seats.map((p,i) => ({
@@ -452,6 +487,8 @@ function viewFor(room, mySeat){
     highTrumpSeat: G.highTrump ? G.highTrump.seat : null,
     ready: G.pending ? G.pending.map(p => !!p) : [false,false,false,false],
     drawers: G.drawers || [],
+    kitty: (G.kitty || []).length,
+    mustShed: (mySeat!==null && G.hands[mySeat]) ? Math.max(0, G.hands[mySeat].length-5) : 0,
     iAmReady: mySeat!==null && !!(G.pending && G.pending[mySeat]),
     waitingCount: (G.phase==='drawing' && G.drawers) ? waitingOn(G).length : 0,
     drawInfo: G.drawInfo,
@@ -544,10 +581,13 @@ wss.on('connection', ws => {
     const host = ws.token === room.hostToken;
 
     switch(m.type){
-      case 'settings':
-        if(host && (!room.G || room.G.phase==='lobby')) Object.assign(room.settings, m.settings||{});
-        else if(host) Object.assign(room.settings, m.settings||{});
+      case 'settings': {
+        if(!host) return;
+        const up = m.settings || {};
+        if(up.kitty!==undefined) up.kitty = [0,3,5].includes(Number(up.kitty)) ? Number(up.kitty) : 0;
+        Object.assign(room.settings, up);
         return push(room);
+      }
       case 'sit': {
         // Seats can be swapped freely until the first hand is dealt.
         if(room.G || seat===null) return;

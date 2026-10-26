@@ -20,6 +20,51 @@ const store={
   set lastCode(v){ try{ localStorage.setItem('f45.lastCode', v); }catch{} }
 };
 
+const DECKS=[
+  {id:'kitchen', name:'Kitchen',  face:'linear-gradient(170deg,#fbf8f0,#f4efe3 55%,#ddd3bd)', ink:'#b23b2c',
+   edge:'rgba(26,21,17,.3)', font:'"Libre Baskerville",Georgia,serif',
+   back:'repeating-linear-gradient(45deg,rgba(0,0,0,.22) 0 3px,transparent 3px 6px),linear-gradient(160deg,#5d2a28,#3c1b1a)',
+   backEdge:'rgba(244,239,227,.22)'},
+  {id:'bicycle', name:'Bicycle',  face:'linear-gradient(180deg,#fff,#f7f7f5)', ink:'#cc1f1f',
+   edge:'rgba(0,0,0,.28)', font:'"Archivo",Helvetica,Arial,sans-serif',
+   back:'radial-gradient(circle at 50% 50%,rgba(255,255,255,.18) 0 2px,transparent 2px),repeating-linear-gradient(0deg,rgba(255,255,255,.10) 0 2px,transparent 2px 7px),linear-gradient(145deg,#c0392b,#8e2420)',
+   backEdge:'rgba(255,255,255,.55)', backSize:'9px 9px,auto,auto'},
+  {id:'midnight',name:'Midnight', face:'linear-gradient(170deg,#243b45,#16252c 60%,#101b21)', ink:'#ff7a6b',
+   edge:'rgba(255,255,255,.22)', font:'"Archivo",Helvetica,Arial,sans-serif',
+   back:'repeating-linear-gradient(135deg,rgba(255,255,255,.07) 0 6px,transparent 6px 12px),linear-gradient(150deg,#1d3b4a,#0d1a21)',
+   backEdge:'rgba(170,200,214,.35)'},
+  {id:'linen',   name:'Linen',    face:'linear-gradient(170deg,#fdfaf2,#f2ead6)', ink:'#a8442f',
+   edge:'rgba(46,42,33,.25)', font:'"Fraunces",Georgia,serif',
+   back:'repeating-linear-gradient(0deg,rgba(80,66,46,.16) 0 1px,transparent 1px 5px),repeating-linear-gradient(90deg,rgba(80,66,46,.16) 0 1px,transparent 1px 5px),linear-gradient(160deg,#9a8a63,#6f6245)',
+   backEdge:'rgba(253,250,242,.4)'},
+  {id:'neon',    name:'Neon',     face:'linear-gradient(170deg,#15151f,#0c0c14)', ink:'#ff4d8d',
+   edge:'rgba(94,242,196,.45)', font:'"Archivo",Helvetica,Arial,sans-serif',
+   back:'repeating-linear-gradient(45deg,rgba(94,242,196,.16) 0 4px,transparent 4px 10px),linear-gradient(150deg,#241546,#12091f)',
+   backEdge:'rgba(94,242,196,.5)'}
+];
+function applyDeck(id){
+  if(!DECKS.some(d=>d.id===id)) id='kitchen';
+  document.documentElement.setAttribute('data-deck', id);
+  try{ localStorage.setItem('f45.deck', id); }catch{}
+}
+const currentDeck=()=>{ try{ return localStorage.getItem('f45.deck')||'kitchen'; }catch{ return 'kitchen'; } };
+
+function deckPicker(){
+  return '<div class="deckrow">'+DECKS.map(d=>
+    '<button class="deckopt" data-deck="'+d.id+'" aria-pressed="'+(d.id===currentDeck())+'" '+
+    'style="--sw-face:'+d.face+';--sw-red:'+d.ink+';--sw-edge:'+d.edge+';--sw-font:'+d.font+
+    ';--sw-back:'+d.back+';--sw-backedge:'+d.backEdge+(d.backSize?';--sw-backsize:'+d.backSize:'')+'">'+
+    '<span class="deckswatch"><i class="f">A</i><i class="b"></i></span>'+
+    '<span class="nm">'+d.name+'</span></button>').join('')+'</div>';
+}
+function wireDeckPicker(root){
+  (root||document).querySelectorAll('.deckopt').forEach(b=>b.onclick=()=>{
+    applyDeck(b.dataset.deck);
+    (root||document).querySelectorAll('.deckopt').forEach(x=>
+      x.setAttribute('aria-pressed', String(x.dataset.deck===currentDeck())));
+  });
+}
+
 const roomFromUrl=()=>{
   const m=location.pathname.match(/\/t\/([A-Za-z0-9]{4})/);
   if(m) return m[1].toUpperCase();
@@ -38,7 +83,7 @@ function connect(then){
       const key=V2key(m.view);
       if(key && key!==dealKey){ dealKey=key; dealAt=Date.now(); }
       V=m.view; render();
-      if(dealing()){ clearTimeout(window.__settle); window.__settle=setTimeout(render,1700); }
+      if(dealing()){ clearTimeout(window.__settle); window.__settle=setTimeout(render, 8*DEAL_STEP+DEAL_FLIGHT+200); }
     }
     else if(m.type==='joined'){
       myToken=m.token; store.token=m.token; store.lastCode=m.code;
@@ -65,6 +110,9 @@ const V2key=v=>(v && v.code && v.handNo) ? v.code+'#'+v.handNo : null;
 
 /* Where each card sits in the 3-then-2 (or 2-then-3) rhythm, so the animation
    matches how the cards actually came off the deck. */
+const DEAL_STEP=130;                     // ms between packets
+const DEAL_FLIGHT=300;                   // ms a card spends in the air
+
 function dealDelays(){
   const pat=(V && V.dealPattern) || [3,2];
   const seatOrder=[0,1,2,3].map(k=>(V.dealer+1+k)%4);
@@ -72,11 +120,29 @@ function dealDelays(){
   for(const chunk of pat) for(const seat of seatOrder) packet.push({seat, chunk});
   const perSeat={};
   packet.forEach((p,i)=>{
-    (perSeat[p.seat]=perSeat[p.seat]||[]).push({at:i*170, n:p.chunk});
+    (perSeat[p.seat]=perSeat[p.seat]||[]).push({at:i*DEAL_STEP, n:p.chunk});
   });
   return perSeat;
 }
-const dealing=()=>V && V.handNo && (Date.now()-dealAt) < 1600;
+
+/* Cards come off the deck in front of the dealer, so that is where they fly
+   from. Offsets are relative to each seat's own resting place. */
+function dealOrigin(seat){
+  const from=screenPos(V.dealer), to=screenPos(seat);
+  const at=p=>[[0,300],[-330,0],[0,-300],[330,0]][p];   // s, w, n, e
+  const a=at(from), b=at(to);
+  return [a[0]-b[0], a[1]-b[1]];
+}
+
+/* Where in the sequence a given card arrives, and how far it has to travel. */
+function dealStyle(anim, idx, seat, spread){
+  let acc=0, at=0;
+  for(const p of anim){ if(idx<acc+p.n){ at=p.at; break; } acc+=p.n; }
+  const [dx,dy]=dealOrigin(seat);
+  const tilt=(idx-spread)*3;
+  return ' style="animation-delay:'+at+'ms;--dx:'+dx+'px;--dy:'+dy+'px;--dr:'+tilt+'deg"';
+}
+const dealing=()=>V && V.handNo && (Date.now()-dealAt) < 8*DEAL_STEP+DEAL_FLIGHT+120;
 
 /* ---------------- card markup ---------------- */
 function cardHTML(c,{small,trump,cls,tag}={}){
@@ -170,16 +236,19 @@ function renderSeats(){
 
     if(pos===0){ box.innerHTML=plate; continue; }
     const vert=(pos===1||pos===3);
+    const backSig=[V.handNo, V.counts[seat]||0, vert].join('|');
+    const existing=box.querySelector('.backs');
+    if(existing && existing.dataset.sig===backSig){
+      // leave the backs alone — only the plate above or below them changes
+      const plateEl=box.querySelector('.plate');
+      if(plateEl) plateEl.outerHTML=plate;
+      continue;
+    }
     const an=dealing()&&V.phase==='bidding'?dealDelays()[seat]:null;
-    const dirs={1:[-200,0],2:[0,220],3:[200,0]};
-    const backs='<div class="backs'+(vert?' vert':'')+'">'+
-      Array.from({length:V.counts[seat]||0},(_,idx)=>{
-        if(!an) return '<span class="back"></span>';
-        let acc=0, at=0;
-        for(const p of an){ if(idx<acc+p.n){ at=p.at; break; } acc+=p.n; }
-        const d=dirs[pos]||[0,0];
-        return '<span class="back dealt" style="animation-delay:'+at+'ms;--dx:'+d[0]+'px;--dy:'+d[1]+'px"></span>';
-      }).join('')+'</div>';
+    const backs='<div class="backs'+(vert?' vert':'')+'" data-sig="'+backSig+'">'+
+      Array.from({length:V.counts[seat]||0},(_,idx)=>
+        an ? '<span class="back dealt"'+dealStyle(an, idx, seat, 2)+'></span>'
+           : '<span class="back"></span>').join('')+'</div>';
     box.innerHTML = pos===2 ? plate+backs : backs+plate;
   }
 }
@@ -222,7 +291,9 @@ function renderWell(){
       '<span class="lbl">Trick '+Math.min(V.trickNo+1,5)+' of 5</span>';
   }else if(V.phase==='bidding'){
     wi.innerHTML='<span class="lbl">Auction</span><span class="trumpname">'+
-      (V.highBid?nameOf(V.highBid.seat)+' at '+V.highBid.value:'no bid yet')+'</span>';
+      (V.highBid?nameOf(V.highBid.seat)+' at '+V.highBid.value:'no bid yet')+'</span>'+
+      (V.kitty? '<div class="kitty">'+Array.from({length:V.kitty},()=>'<span class="back"></span>').join('')+
+                '</div><span class="lbl">kitty · '+V.kitty+'</span>' : '');
   }else if(V.phase==='naming'){
     wi.innerHTML='<span class="lbl">Naming trump</span><span class="trumpname">'+nameOf(V.highBid.seat)+'</span>';
   }else wi.innerHTML='<span class="lbl">Dealing</span>';
@@ -294,6 +365,14 @@ function renderContract(){
 }
 
 function renderHand(){
+  // Rebuilding the DOM restarts every running animation, so bail out when
+  // nothing about the hand has changed. This is what made the deal stutter.
+  const h0=el('hand');
+  const sig=[V.mySeat, V.handNo, (V.hand||[]).map(c=>c.id).join(','),
+             (V.legal||[]).join(','), [...discardSel].join(','),
+             V.phase, V.iAmReady, !!(V.mustPlay)].join('|');
+  if(h0.dataset.sig===sig) return;
+  h0.dataset.sig=sig;
   const h=el('hand');
   if(V.mySeat===null||!V.hand){ h.innerHTML=''; return; }
   const discarding=V.phase==='drawing'&&V.drawers.includes(V.mySeat)&&!V.iAmReady;
@@ -307,13 +386,7 @@ function renderHand(){
     else if(V.legal) cls=V.legal.includes(c.id)?'playable':'blocked';
     const disabled=!contributing&&V.legal&&!V.legal.includes(c.id);
     let style='';
-    if(anim){
-      // find which packet this card arrived in
-      let acc=0, at=0;
-      for(const p of anim){ if(idx<acc+p.n){ at=p.at; break; } acc+=p.n; }
-      cls+=' dealt';
-      style=' style="animation-delay:'+at+'ms;--dx:'+((idx-2)*18)+'px;--dy:-260px;--dr:'+((idx-2)*4)+'deg"';
-    }
+    if(anim){ cls+=' dealt'; style=dealStyle(anim, idx, V.mySeat, 2); }
     return cardHTML(c,{trump:V.trump&&isTrumpC(c),cls})
       .replace('<span class="card','<button type="button" data-id="'+c.id+'"'+(disabled?' disabled':'')+style+' class="card')
       .replace(/<\/span>$/,'</button>');
@@ -343,7 +416,7 @@ function renderPromptAndBar(){
   else if(V.phase==='bidding'&&V.turn===me){
     const cur=V.highBid?V.highBid.value:0;
     const list=[15,20,25,30].filter(b=>b>cur);
-    const canHold=V.settings.dealerHold&&me===V.dealer&&V.highBid&&cur<30;
+    const canHold=V.holdAllowed&&me===V.dealer&&V.highBid&&cur<30;
     cue='<span class="cue">'+(V.highBid?nameOf(V.highBid.seat)+' in at <b>'+cur+'</b>':'Your call')+'</span>';
     btns=list.map(b=>'<button class="btn" data-act="bid" data-v="'+b+'">'+b+
          ' <span style="opacity:.65;font-weight:400">'+quotaFor(b)+'/6</span></button>').join('')+
@@ -359,11 +432,16 @@ function renderPromptAndBar(){
     msg=(V.highBid.stuck?'Nobody bid, so it’s on you. ':'')+'You need <strong>'+quotaFor(V.highBid.value)+' of 6</strong>.';
   }
   else if(V.phase==='drawing'&&V.drawers&&V.drawers.includes(me)&&!V.iAmReady){
-    const n=discardSel.size;
-    cue='<span class="cue">Click cards to throw away</span>';
-    btns='<button class="btn solid" data-act="draw">'+(n?'Lock in — throw '+n:'Stand pat')+'</button>'+
+    const n=discardSel.size, over=(V.hand.length-n)-5;
+    cue='<span class="cue">'+(over>0
+        ? 'Throw <b>'+over+'</b> more to come down to five'
+        : 'Click cards to throw away')+'</span>';
+    btns='<button class="btn solid" data-act="draw"'+(over>0?' disabled':'')+'>'+
+         (n?'Lock in — throw '+n:'Stand pat')+'</button>'+
          (n?'<button class="btn quiet" data-act="clear">Clear</button>':'');
-    msg='<strong>'+SUITNAME[V.trump]+' '+GLYPH[V.trump]+'</strong> is trump — keep what helps. Everyone picks at once.';
+    msg=V.hand.length>5
+      ? 'You took the kitty — <strong>'+V.hand.length+' cards</strong>. Keep your best five.'
+      : '<strong>'+SUITNAME[V.trump]+' '+GLYPH[V.trump]+'</strong> is trump — keep what helps. Everyone picks at once.';
   }
   else if(V.phase==='drawing'){
     msg=V.waitingCount
@@ -458,6 +536,17 @@ function paintLobby(){
       '<div class="row" style="justify-content:center;margin-bottom:12px">'+
         '<button class="btn" id="copyLink">Copy invite link</button></div>'+
       '<div class="seatlist">'+rows+'</div>'+
+      (host
+        ? '<h4 style="margin:16px 0 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600">Kitty</h4>'+
+          '<div class="deckrow" id="kittyRow">'+
+          [[0,'Off'],[3,'3 cards'],[5,'5 cards']].map(k=>
+            '<button class="deckopt" data-kitty="'+k[0]+'" aria-pressed="'+(Number(V.settings.kitty||0)===k[0])+'">'+
+            '<span class="nm">'+k[1]+'</span></button>').join('')+'</div>'+
+          '<p class="dek" style="margin:6px 0 0;font-size:12px">Dealt face down for whoever buys the hand. With a kitty in play the dealer cannot hold the bid.</p>'
+        : '<p class="dek" style="margin:14px 0 0;font-size:12.5px">Kitty: <b>'+
+          (V.settings.kitty? V.settings.kitty+' cards':'off')+'</b></p>')+
+      '<h4 style="margin:16px 0 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600">Your deck</h4>'+
+      deckPicker()+
       (myTeam?'<p class="waiting" style="margin:10px 0 0">You’re on <b style="color:var(--sage)">'+myTeam+'</b></p>':'')+
       '<div class="row" style="margin-top:14px">'+
       (host?'<button class="btn solid" id="startBtn">Deal the first hand</button>'
@@ -468,13 +557,19 @@ function paintLobby(){
       '<div class="lobby">'+
       '<label>Your name<input id="nm" maxlength="14" value="'+(store.name||'')+'" placeholder="Ajay"></label>'+
       (code?'<label>Table code<input id="code" value="'+code+'" maxlength="4"></label>':'')+
-      '</div><div class="row" style="margin-top:16px">'+
+      '</div>'+
+      '<h4 style="margin:16px 0 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600">Your deck</h4>'+
+      deckPicker()+
+      '<div class="row" style="margin-top:16px">'+
       (code?'<button class="btn solid" id="joinBtn">Join table</button>':'')+
       '<button class="btn'+(code?' quiet':' solid')+'" id="newBtn">Start a new table</button>'+
       '</div></div>';
   }
   paint('lobby', body);
 
+  wireDeckPicker(ov);
+  ov.querySelectorAll('[data-kitty]').forEach(b=>b.onclick=()=>
+    send({type:'settings', settings:{kitty:Number(b.dataset.kitty)}}));
   const cp=el('copyLink'); if(cp) cp.onclick=copyInvite;
   const sb=el('startBtn'); if(sb) sb.onclick=()=>send({type:'start'});
   ov.querySelectorAll('[data-sit]').forEach(b=>b.onclick=()=>send({type:'sit', seat:+b.dataset.sit}));
@@ -526,6 +621,14 @@ function showResult(){
 
 /* ---------------- chrome ---------------- */
 el('btnInvite').onclick=copyInvite;
+el('btnDeck').onclick=()=>{
+  paint('deck','<div class="panel"><h3>Choose your deck</h3>'+
+    '<p class="dek">Just for you — everyone at the table picks their own.</p>'+
+    deckPicker()+
+    '<div class="row" style="margin-top:18px"><button class="btn quiet" id="closeD">Done</button></div></div>');
+  wireDeckPicker(ov);
+  el('closeD').onclick=closeOv;
+};
 el('btnRules').onclick=()=>{
   paint('rules','<div class="panel" style="max-width:580px"><h3>How this table plays</h3>'+
   '<div class="scrollbody rulesbox">'+
@@ -538,6 +641,7 @@ el('btnRules').onclick=()=>{
   '<li>Five cards each, three then two, from the dealer’s left.</li>'+
   '<li>One round. Raise or pass — <b>only the dealer can take it at the standing number</b>. A 30 ends it on the spot.</li>'+
   '<li>Passed all the way round and <b>the dealer is stuck at 15</b>.</li>'+
+  '<li><b>Kitty</b> (optional): three or five cards go face down in the middle. Whoever buys the hand takes them in and then comes back down to five. With a kitty in play the dealer <b>cannot</b> hold the bid.</li>'+
   '<li>The bidder names trump, then <b>everyone</b> discards and draws back up to five. A <b>30 is played as dealt</b>.</li>'+
   '<li>The bidder leads; after that whoever wins a trick leads the next.</li></ul>'+
   '<h4>Leading the top trumps together</h4><ul>'+
@@ -566,6 +670,10 @@ el('btnSettings').onclick=()=>{
   '<p class="dek">Host only. Changes apply from the next hand.</p>'+
   '<div class="setting"><span class="k">Play to</span><input type="number" id="sTarget" min="6" max="200" value="'+s.target+'"></div>'+
   '<div class="setting"><span class="k">Defenders bank their units</span><select id="sDef"><option value="1"'+(s.defendersScore?' selected':'')+'>Yes</option><option value="0"'+(!s.defendersScore?' selected':'')+'>No</option></select></div>'+
+  '<div class="setting"><span class="k">Kitty<small>Cards dealt face down for whoever buys the hand.</small></span>'+
+    '<select id="sKitty"><option value="0"'+(!s.kitty?' selected':'')+'>Off</option>'+
+    '<option value="3"'+(s.kitty===3?' selected':'')+'>3 cards</option>'+
+    '<option value="5"'+(s.kitty===5?' selected':'')+'>5 cards</option></select></div>'+
   '<div class="setting"><span class="k">Discard &amp; draw</span><select id="sDraw"><option value="everyone"'+(s.draw==='everyone'?' selected':'')+'>Everyone</option><option value="bidder"'+(s.draw==='bidder'?' selected':'')+'>Bidder only</option><option value="none"'+(s.draw==='none'?' selected':'')+'>Nobody</option></select></div>'+
   '<div class="setting"><span class="k">Enforce reneging</span><select id="sRen"><option value="1"'+(s.enforceRenege?' selected':'')+'>Yes</option><option value="0"'+(!s.enforceRenege?' selected':'')+'>No</option></select></div>'+
   '<div class="setting"><span class="k">Dealer may hold</span><select id="sHold"><option value="1"'+(s.dealerHold?' selected':'')+'>Yes</option><option value="0"'+(!s.dealerHold?' selected':'')+'>No</option></select></div>'+
@@ -575,6 +683,7 @@ el('btnSettings').onclick=()=>{
       target:Math.max(6,Math.min(200,+el('sTarget').value||31)),
       defendersScore:el('sDef').value==='1',
       draw:el('sDraw').value,
+      kitty:Number(el('sKitty').value),
       enforceRenege:el('sRen').value==='1',
       dealerHold:el('sHold').value==='1'
     }});
@@ -583,6 +692,7 @@ el('btnSettings').onclick=()=>{
   el('closeS').onclick=closeOv;
 };
 
+applyDeck(currentDeck());
 connect(()=>{
   const code=roomFromUrl();
   const returning = code && store.token && store.lastCode===code;
