@@ -143,6 +143,20 @@ ok(only(['JS','7S','9D'],'KS').indexOf('9D')<0, "holding another trump you must 
 ok(only(['5S','JS','9D'],'KS').indexOf('9D')>=0, "two renegable tops and nothing else stays free");
 ok(only(['5S','AH','9D'],'JS').indexOf('9D')<0, "the jack led forces the ace of hearts even beside the 5");
 
+
+/* ---- never waste a trump on a trick your partner already holds ---- */
+var ctx=function(seat){ return {seat:seat,trickNo:1,highBid:{seat:1,value:15},enforce:true,
+                                thirdHigh:'probe',onContract:false,teamKept:3,oppKept:3}; };
+// partner (seat 0) leads the king of clubs; you sit second with the ace of hearts
+var pick=R.botPlay(H(['AH','9C','3C']), [{seat:0,card:C('KC')}], 'S', ctx(2));
+ok(pick.id!=='AH', "does not trump partner's king of clubs with the ace of hearts");
+ok(pick.s==='C', "follows suit with a club instead");
+pick=R.botPlay(H(['AH','9D','3D']), [{seat:0,card:C('QC')}], 'S', ctx(2));
+ok(pick.id!=='AH', "nor on partner's queen when void in the suit");
+// an OPPONENT winning with the king is a different matter
+pick=R.botPlay(H(['AH','9D','3D']), [{seat:1,card:C('KC')}], 'S', ctx(2));
+ok(pick.id==='AH', "but does trump an opponent's king when it is the only winner");
+
 out.push(fails? ("\n"+fails+" FAILED") : "\nall "+out.length+" checks passed");
 console.log(out.join("\n"));
 process.exit(fails?1:0);

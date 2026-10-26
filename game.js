@@ -211,7 +211,12 @@ function botPlay(hand, trick, t, ctx){
   const beats = legal.filter(c => power(c,t) > power(win.card,t) && (isTrump(c,t) || effSuit(c,t)===ledSuit));
 
   if(partnerAhead){
-    const solid = isTrump(win.card,t) ? trumpStrength(win.card,t) >= n-3 : seatOrder===3;
+    // Partner has it. Trust a top plain card as well as a strong trump: only a
+    // trump beats a king or a queen, and spending one of yours on a trick your
+    // own side already holds wins nothing it did not already have.
+    const solid = isTrump(win.card,t)
+      ? trumpStrength(win.card,t) >= n-3
+      : (seatOrder===3 || win.card.r==='K' || win.card.r==='Q');
     if(solid || !beats.length) return toss(legal);
   }
   if(!beats.length) return toss(legal);
