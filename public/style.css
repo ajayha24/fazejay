@@ -409,3 +409,6 @@ html,body{min-height:100%}
   .lobby input#code{font-size:20px}
   .scrim{padding:14px}
 }
+
+.btn.tiny{padding:4px 11px;font-size:12px;border-radius:999px;flex:none}
+.seatrow .btn.tiny{margin-left:auto}

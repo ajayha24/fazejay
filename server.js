@@ -426,6 +426,18 @@ wss.on('connection', ws => {
         if(host && (!room.G || room.G.phase==='lobby')) Object.assign(room.settings, m.settings||{});
         else if(host) Object.assign(room.settings, m.settings||{});
         return push(room);
+      case 'sit': {
+        // Seats can be swapped freely until the first hand is dealt.
+        if(room.G || seat===null) return;
+        const to = Number(m.seat);
+        if(!(to>=0 && to<4) || to===seat || room.seats[to]) return;
+        room.seats[to] = room.seats[seat];
+        room.seats[seat] = null;
+        if(!room.hostToken) room.hostToken = room.seats[to].token;
+        log(room, '<b>'+room.seats[to].name+'</b> moves to seat '+(to+1)+
+                  ' ('+(to%2===0?'Team A':'Team B')+').');
+        return push(room);
+      }
       case 'start':
         if(host) startGame(room);
         return;

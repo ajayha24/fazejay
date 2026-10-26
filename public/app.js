@@ -328,23 +328,36 @@ function renderLobby(force){
 }
 function paintLobby(){
   const code=V&&V.code?V.code:roomFromUrl();
-  const seated=V?V.seats:null;
-  const rows=seated?seated.map((p,i)=>
-    '<div class="seatrow'+(i===V.mySeat?' mine':'')+'">'+
-    '<span class="tm">'+(i%2===0?'Team A':'Team B')+'</span>'+
-    '<span class="nm'+(p.empty?' vacant':'')+'">'+(p.empty?'open — a bot will sit in':(i===V.mySeat?p.name+' (you)':p.name))+'</span>'+
-    (p.away?'<span class="st">away</span>':'')+'</div>').join(''):'';
   const host=V&&V.isHost;
-  const body = V
-    ? '<div class="panel"><h3>Table '+V.code+'</h3>'+
-      '<p class="dek">Partners sit across from each other — Team A is seats 1 and 3, Team B is seats 2 and 4. Any empty seat is played by a bot.</p>'+
+  let body;
+
+  if(V){
+    // Seats alternate round the table, so partners sit across from each other.
+    const rows=V.seats.map((p,i)=>{
+      const mine=i===V.mySeat;
+      const canSit=p.empty&&V.mySeat!==null&&!mine;
+      return '<div class="seatrow'+(mine?' mine':'')+'">'+
+        '<span class="tm">'+(i%2===0?'Team A':'Team B')+'</span>'+
+        '<span class="nm'+(p.empty?' vacant':'')+'">'+
+          (p.empty?'open — a bot will sit in':(mine?p.name+' (you)':p.name))+'</span>'+
+        (p.away?'<span class="st">away</span>':'')+
+        (canSit?'<button class="btn tiny" data-sit="'+i+'">Sit here</button>':'')+
+        '</div>';
+    }).join('');
+    const myTeam=V.mySeat===null?null:(V.mySeat%2===0?'Team A':'Team B');
+    body='<div class="panel"><h3>Table '+V.code+'</h3>'+
+      '<p class="dek">Partners sit across the table — Team A is seats 1 and 3, Team B is seats 2 and 4. '+
+      'Click any open seat to move; empty seats are played by bots.</p>'+
       '<div class="codebig">'+V.code+'</div>'+
-      '<div class="row" style="justify-content:center;margin-bottom:12px"><button class="btn" id="copyLink">Copy invite link</button></div>'+
+      '<div class="row" style="justify-content:center;margin-bottom:12px">'+
+        '<button class="btn" id="copyLink">Copy invite link</button></div>'+
       '<div class="seatlist">'+rows+'</div>'+
+      (myTeam?'<p class="waiting" style="margin:10px 0 0">You’re on <b style="color:var(--sage)">'+myTeam+'</b></p>':'')+
       '<div class="row" style="margin-top:14px">'+
       (host?'<button class="btn solid" id="startBtn">Deal the first hand</button>'
-           :'<span class="waiting">Waiting for the host to deal…</span>')+'</div></div>'
-    : '<div class="panel"><h3>Kitchen Table 45s</h3>'+
+           :'<span class="waiting">Waiting for the host to deal…</span>')+'</div></div>';
+  } else {
+    body='<div class="panel"><h3>Kitchen Table 45s</h3>'+
       '<p class="dek">Four players, two teams, six units a hand. Start a table and send the link to three friends — empty seats are covered by bots.</p>'+
       '<div class="lobby">'+
       '<label>Your name<input id="nm" maxlength="14" value="'+(store.name||'')+'" placeholder="Ajay"></label>'+
@@ -353,10 +366,12 @@ function paintLobby(){
       (code?'<button class="btn solid" id="joinBtn">Join table</button>':'')+
       '<button class="btn'+(code?' quiet':' solid')+'" id="newBtn">Start a new table</button>'+
       '</div></div>';
+  }
   paint('lobby', body);
 
   const cp=el('copyLink'); if(cp) cp.onclick=copyInvite;
   const sb=el('startBtn'); if(sb) sb.onclick=()=>send({type:'start'});
+  ov.querySelectorAll('[data-sit]').forEach(b=>b.onclick=()=>send({type:'sit', seat:+b.dataset.sit}));
   const jb=el('joinBtn');
   if(jb) jb.onclick=()=>{
     store.name=(el('nm').value||'Player').trim()||'Player';
