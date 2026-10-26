@@ -94,7 +94,7 @@ function dealHand(room){
   G.trick = []; G.trickNo = 0; G.leader = null;
   G.units = [0,0]; G.highTrump = null;
   G.bidsSeen = 0;
-  G.drawers = []; G.drawQueue = []; G.drawingWho = null;
+  G.drawers = []; G.pending = [null,null,null,null];
   G.drawInfo = [null,null,null,null];
   G.result = null;
   G.resolving = false;
@@ -150,33 +150,47 @@ function nameTrump(room, seat, t){
                 : s.draw==='bidder' ? [G.highBid.seat] : [0,1,2,3];
   if(!drawers.length) return startPlay(room);
   G.drawers = drawers;
-  G.drawQueue = [];
-  for(let k=0;k<4;k++){ const p=(G.dealer+1+k)%4; if(drawers.includes(p)) G.drawQueue.push(p); }
+  G.pending = [null,null,null,null];          // each player's chosen discards
   G.phase = 'drawing';
-  nextDrawer(room);
-}
-
-function nextDrawer(room){
-  const G = room.G;
-  if(!G.drawQueue.length){ G.drawingWho = null; push(room); return later(room, 420, () => startPlay(room)); }
-  G.drawingWho = G.drawQueue[0];
   push(room); drive(room);
 }
 
+// Who still has to lock in a discard?
+const waitingOn = G => G.drawers.filter(p => !G.pending[p]);
+
 function doDiscard(room, seat, ids){
   const G = room.G;
-  if(G.phase!=='drawing' || G.drawingWho!==seat) return;
-  const drop = new Set(Array.isArray(ids) ? ids : []);
-  G.hands[seat] = G.hands[seat].filter(c => !drop.has(c.id));
-  const kept = G.hands[seat].length;
-  while(G.hands[seat].length < 5 && G.stock.length) G.hands[seat].push(G.stock.pop());
-  const drew = 5 - kept;
-  G.hands[seat].sort(R.sortForDisplay(G.trump));
-  G.drawInfo[seat] = {kept, drew};
-  log(room, drew ? '<b>'+nameOf(room,seat)+'</b> keeps '+kept+', draws '+drew+'.'
-                 : '<b>'+nameOf(room,seat)+'</b> stands pat on all five.');
-  G.drawQueue.shift();
-  nextDrawer(room);
+  if(G.phase!=='drawing' || !G.drawers.includes(seat) || G.pending[seat]) return;
+  const list = Array.isArray(ids) ? ids : [];
+  if(new Set(list).size !== list.length) return;
+  if(!list.every(id => G.hands[seat].some(c => c.id===id))) return;
+  G.pending[seat] = list;                     // locked in, but nothing is dealt yet
+  log(room, '<b>'+nameOf(room,seat)+'</b> is ready.');
+  if(waitingOn(G).length){ push(room); return drive(room); }
+  G.resolving = true; push(room);
+  later(room, 450, () => serveDraws(room));
+}
+
+/* Everyone has chosen. Now the dealer serves, starting on their left and
+   dealing to themselves last. */
+function serveDraws(room){
+  const G = room.G;
+  G.resolving = false;
+  for(let k=0;k<4;k++){
+    const seat = (G.dealer+1+k)%4;             // dealer is k===3, so they come last
+    if(!G.drawers.includes(seat)) continue;
+    const drop = new Set(G.pending[seat] || []);
+    G.hands[seat] = G.hands[seat].filter(c => !drop.has(c.id));
+    const kept = G.hands[seat].length;
+    while(G.hands[seat].length < 5 && G.stock.length) G.hands[seat].push(G.stock.pop());
+    const drew = 5 - kept;
+    G.hands[seat].sort(R.sortForDisplay(G.trump));
+    G.drawInfo[seat] = {kept, drew};
+    log(room, drew ? '<b>'+nameOf(room,seat)+'</b> keeps '+kept+', draws '+drew+'.'
+                   : '<b>'+nameOf(room,seat)+'</b> stands pat on all five.');
+  }
+  G.pending = [null,null,null,null];
+  startPlay(room);
 }
 
 function startPlay(room){
@@ -307,7 +321,7 @@ function nextHand(room){
   G.phase = 'shuffling';
   G.trick = []; G.hands = [[],[],[],[]]; G.highBid = null; G.trump = null;
   G.bids = [null,null,null,null]; G.units=[0,0]; G.highTrump=null; G.trickNo=0;
-  G.drawInfo = [null,null,null,null]; G.drawingWho = null; G.result = null;
+  G.drawInfo = [null,null,null,null]; G.pending = [null,null,null,null]; G.result = null;
   push(room);
   later(room, 820, () => dealHand(room));
 }
@@ -339,9 +353,11 @@ function drive(room){
     const seat = G.highBid.seat;
     return later(room, 650, () => nameTrump(room, seat, R.botTrump(G.hands[seat])));
   }
-  if(G.phase==='drawing' && G.drawingWho!==null && isBot(room, G.drawingWho)){
-    const seat = G.drawingWho;
-    return later(room, 560, () => doDiscard(room, seat, R.botDiscard(G.hands[seat], G.trump)));
+  if(G.phase==='drawing'){
+    const seat = waitingOn(G).find(p => isBot(room, p));
+    if(seat !== undefined)
+      return later(room, 420, () => doDiscard(room, seat, R.botDiscard(G.hands[seat], G.trump)));
+    return;                                    // only humans left to lock in
   }
   if(G.phase==='declaring' && G.decl && isBot(room, G.decl.turn)){
     const seat = G.decl.turn;
@@ -399,7 +415,10 @@ function viewFor(room, mySeat){
     units: G.units,
     scores: G.scores,
     highTrumpSeat: G.highTrump ? G.highTrump.seat : null,
-    drawingWho: G.drawingWho,
+    ready: G.pending ? G.pending.map(p => !!p) : [false,false,false,false],
+    drawers: G.drawers || [],
+    iAmReady: mySeat!==null && !!(G.pending && G.pending[mySeat]),
+    waitingCount: (G.phase==='drawing' && G.drawers) ? waitingOn(G).length : 0,
     drawInfo: G.drawInfo,
     counts: G.hands.map(h => h.length),
     result: G.result,
@@ -573,6 +592,9 @@ setInterval(() => {
     } else if(G.resolving && G.trick.length === 4){
       console.warn('[watchdog] lost end-of-trick beat, room', r.code);
       finishTrick(r);
+    } else if(G.resolving && G.phase === 'drawing'){
+      console.warn('[watchdog] lost draw beat, room', r.code);
+      serveDraws(r);
     } else if(G.phase === 'shuffling'){
       console.warn('[watchdog] lost deal, room', r.code);
       dealHand(r);

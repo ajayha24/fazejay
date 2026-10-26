@@ -100,11 +100,17 @@ function render(){
       (V.phase==='bidding'&&V.turn===V.mySeat) ||
       (V.phase==='playing'&&V.turn===V.mySeat&&V.legal&&V.legal.length) ||
       (V.phase==='naming'&&V.highBid.seat===V.mySeat) ||
-      (V.phase==='drawing'&&V.drawingWho===V.mySeat) || !!V.mustPlay);
+      (V.phase==='drawing'&&V.drawers.includes(V.mySeat)&&!V.iAmReady) || !!V.mustPlay);
   document.querySelector('.board').classList.toggle('myturn', !!myTurn);
-  el('tableTag').innerHTML = myTurn
-    ? '<span class="turnflag"><span class="pip"></span>Your turn</span>'
-    : 'Table '+V.code;
+  el('tableTag').textContent='Table '+V.code;
+  let banner=document.getElementById('turnbanner');
+  if(!banner){
+    banner=document.createElement('div');
+    banner.id='turnbanner'; banner.className='turnbanner';
+    document.querySelector('.well').appendChild(banner);
+  }
+  banner.textContent='Your turn';
+  banner.hidden=!myTurn;
   el('btnInvite').hidden=false;
   el('btnSettings').hidden=!V.isHost;
 
@@ -148,7 +154,8 @@ function renderSeats(){
     }
     const di=V.drawInfo&&V.drawInfo[seat];
     if(di) chip+='<span class="chip-bid draw">kept '+di.kept+' · drew '+di.drew+'</span>';
-    else if(V.phase==='drawing'&&V.drawingWho===seat) chip+='<span class="chip-bid draw">drawing…</span>';
+    else if(V.phase==='drawing'&&V.drawers.includes(seat))
+      chip+='<span class="chip-bid draw">'+(V.ready[seat]?'ready':'choosing…')+'</span>';
 
     const roles=[];
     if(seat===V.dealer) roles.push('deals');
@@ -289,7 +296,7 @@ function renderContract(){
 function renderHand(){
   const h=el('hand');
   if(V.mySeat===null||!V.hand){ h.innerHTML=''; return; }
-  const discarding=V.phase==='drawing'&&V.drawingWho===V.mySeat;
+  const discarding=V.phase==='drawing'&&V.drawers.includes(V.mySeat)&&!V.iAmReady;
   const contributing=!!V.mustPlay;
   const anim=dealing()&&V.phase==='bidding'?dealDelays()[V.mySeat]:null;
   let given=0;
