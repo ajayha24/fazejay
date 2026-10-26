@@ -98,6 +98,8 @@ function dealHand(room){
   G.drawInfo = [null,null,null,null];
   G.result = null;
   G.resolving = false;
+  G.seen = [];            // every card played this hand
+  G.voidTrump = {};       // seats that have shown out of trump
   G.decl = null;
   G.phase = 'bidding';
   G.turn = (G.dealer+1)%4;
@@ -201,6 +203,18 @@ function startPlay(room){
   push(room); drive(room);
 }
 
+/* Public memory of the hand: what has been played, and who has shown out.
+   Failing to follow a suit proves a void in it — on a trump lead that is only
+   true up to the three cards a player is allowed to renege, which the bots
+   account for separately. */
+function noteCard(G, seat, card){
+  G.seen.push(card.id);
+  if(G.trick.length > 1){
+    const led = R.effSuit(G.trick[0].card, G.trump);
+    if(R.effSuit(card, G.trump) !== led && led === G.trump) G.voidTrump[seat] = true;
+  }
+}
+
 function playCard(room, seat, cardId){
   const G = room.G;
   if(G.phase!=='playing' || G.turn!==seat || G.resolving) return;
@@ -211,6 +225,7 @@ function playCard(room, seat, cardId){
 
   G.hands[seat] = G.hands[seat].filter(c => c.id!==card.id);
   G.trick.push({seat, card});
+  noteCard(G, seat, card);
   if(G.trick.length===1) log(room, '<b>'+nameOf(room,seat)+'</b> leads '+card.r+R.GLYPH[card.s]+'.');
   if(R.isTrump(card, G.trump)){
     if(!G.highTrump || R.trumpStrength(card,G.trump) > R.trumpStrength(G.highTrump.card,G.trump))
@@ -252,6 +267,8 @@ function contribute(room, seat, ids){
   const set = new Set(ids);
   G.decl.cards[seat] = G.hands[seat].filter(c => set.has(c.id));
   G.hands[seat] = G.hands[seat].filter(c => !set.has(c.id));
+  for(const c of G.decl.cards[seat]) G.seen.push(c.id);
+  if(G.decl.cards[seat].some(c => !R.isTrump(c, G.trump))) G.voidTrump[seat] = true;
   log(room, '<b>'+nameOf(room,seat)+'</b> plays '+
             G.decl.cards[seat].map(c => c.r+R.GLYPH[c.s]).join(' ')+'.');
   const next = (seat+1)%4;
@@ -391,7 +408,9 @@ function drive(room){
       const card = R.botPlay(G.hands[seat], G.trick, G.trump, {
         seat, trickNo:G.trickNo, highBid:G.highBid, enforce:s.enforceRenege,
         thirdHigh:s.thirdHigh, onContract: teamOf(G.highBid.seat)===teamOf(seat),
-        teamKept: sum(seat,(seat+2)%4), oppKept: sum((seat+1)%4,(seat+3)%4)
+        teamKept: sum(seat,(seat+2)%4), oppKept: sum((seat+1)%4,(seat+3)%4),
+        seen: new Set(G.seen), voidTrump: G.voidTrump,
+        acted: G.trick.map(p => p.seat)
       });
       if(!card){ console.error('[bug] no legal card for seat', seat, 'hand', G.hands[seat].length); return; }
       playCard(room, seat, card.id);

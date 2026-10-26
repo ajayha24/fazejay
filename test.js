@@ -168,6 +168,33 @@ ok(!R.validContribution(H(['9D','KC','2H']),'S',2,['9D']), "wrong count is refus
 ok(!R.validContribution(H(['9D','KC']),'S',2,['9D','9D']), "the same card twice is refused");
 ok(R.validContribution(H(['9D']),'S',2,['9D']), "short of cards, you give what you have");
 
+
+/* ---- reading the table: do not burn a top trump on a safe trick ---- */
+(function(){
+  var t='C';                                   // clubs are trump
+  var hand=[C('AH'),C('9D'),C('2S')];          // A-hearts is my only trump
+  // Partner (seat 2) led K-clubs; both opponents have shown out of trump.
+  var trick=[{seat:2,card:C('KC')},{seat:3,card:C('4D')}];
+  var ctx={seat:0,trickNo:2,highBid:{seat:2,value:15},enforce:true,thirdHigh:'probe',
+           onContract:true,seen:new Set(['KC','4D','5C','JC']),voidTrump:{1:true,3:true},
+           acted:[2,3]};
+  var pick=R.botPlay(hand,trick,t,ctx);
+  ok(pick.id!=='AH', "holds the ace of hearts back when partner's king cannot be beaten");
+
+  // Same trick, but the 5 of clubs is still out there and an opponent could hold it.
+  var ctx2=Object.assign({},ctx,{seen:new Set(['KC','4D']),voidTrump:{}});
+  ok(R.opponentThreat(C('KC'),t,ctx2,hand)===true, "an opponent who has not shown out is a threat");
+  ok(R.opponentThreat(C('KC'),t,ctx,hand)===false, "once both have shown out and the tops are gone, none");
+
+  // Shown out of trump, but the 5 has not appeared — it can still be reneged.
+  var ctx3=Object.assign({},ctx,{seen:new Set(['KC','4D','JC']),voidTrump:{1:true,3:true}});
+  ok(R.opponentThreat(C('KC'),t,ctx3,hand)===true, "a renegable 5 still counts as a threat");
+
+  var out=R.outstandingAbove(C('KC'),'C',new Set(['5C']),[C('AH')]);
+  ok(out.indexOf('5C')<0 && out.indexOf('AH')<0 && out.indexOf('JC')>=0 && out.indexOf('AC')>=0,
+     "outstanding cards exclude what is seen and what I hold");
+})();
+
 out.push(fails? ("\n"+fails+" FAILED") : "\nall "+out.length+" checks passed");
 console.log(out.join("\n"));
 process.exit(fails?1:0);

@@ -175,6 +175,34 @@ const botDiscard = (hand, t) => hand.filter(c => !isTrump(c,t)).map(c => c.id);
 
 const hiFirst = (a,t) => a.slice().sort((x,y) => power(y,t)-power(x,t));
 
+/* Which trumps outranking `card` are still unaccounted for — not yet played and
+   not in my own hand. `seen` holds every card played so far this hand. */
+function outstandingAbove(card, t, seen, myHand){
+  const mine = new Set(myHand.map(c => c.id));
+  const bar = trumpStrength(card, t);
+  const o = TRUMP_ORDER[t];
+  return o.filter(id => !seen.has(id) && !mine.has(id) && (o.length - o.indexOf(id)) > bar);
+}
+
+/* Can an opponent who has not yet played still take this trick off us? One who
+   already failed to follow trump holds none — except the 5, the jack and the
+   ace of hearts, which may legally be held back, so those stay possible until
+   they are actually seen. */
+function opponentThreat(card, t, ctx, myHand){
+  const seen = ctx.seen || new Set();
+  const voidTrump = ctx.voidTrump || {};
+  const higher = outstandingAbove(card, t, seen, myHand);
+  if(!higher.length) return false;
+  const top = TOP3(t);
+  const acted = ctx.acted || [];
+  for(const opp of [(ctx.seat+1)%4, (ctx.seat+3)%4]){
+    if(acted.includes(opp)) continue;                 // already played to this trick
+    if(!voidTrump[opp]) return true;                  // could be holding anything
+    if(higher.some(id => top.includes(id))) return true;
+  }
+  return false;
+}
+
 function botLead(legal, t, {onContract, trickNo, thirdHigh, teamKept, oppKept}){
   const n = TRUMP_ORDER[t].length;
   const trumps = hiFirst(legal.filter(c => isTrump(c,t)), t);
@@ -218,6 +246,16 @@ function botPlay(hand, trick, t, ctx){
       ? trumpStrength(win.card,t) >= n-3
       : (seatOrder===3 || win.card.r==='K' || win.card.r==='Q');
     if(solid || !beats.length) return toss(legal);
+
+    // Partner's card is not obviously safe, but if nothing outstanding can
+    // actually take it off them, spending a card here buys nothing. That
+    // matters most when the only card that would win is one we are entitled to
+    // renege — never burn the 5, the jack or the ace of hearts to overtake
+    // your own partner on a trick nobody can touch.
+    if(!opponentThreat(win.card, t, ctx, hand)){
+      const spare = legal.filter(c => !top3.includes(c.id));
+      if(spare.length) return toss(spare);
+    }
   }
   if(!beats.length) return toss(legal);
 
@@ -283,6 +321,7 @@ module.exports = {
   declarable, declareCards, requiredTrumps, validContribution, botContribution,
   SUITS, GLYPH, SUITNAME, RED, RANKS, TRUMP_ORDER, PLAIN_ORDER, TOP3,
   fullDeck, shuffle, isTrump, trumpStrength, plainStrength, effSuit, power,
+  outstandingAbove, opponentThreat,
   quotaFor, sortForDisplay, legalMoves, trickWinner,
   evalSuit, bestSuit, suitHolding, bidFor, bestBidSuit, botBid, botTrump, botDiscard, botPlay
 };
