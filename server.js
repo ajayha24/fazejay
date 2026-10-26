@@ -247,7 +247,7 @@ function declare(room, seat, count){
 
 function contribute(room, seat, ids){
   const G = room.G;
-  if(G.phase!=='declaring' || !G.decl || G.decl.turn!==seat) return;
+  if(G.phase!=='declaring' || !G.decl || G.resolving || G.decl.turn!==seat) return;
   if(!R.validContribution(G.hands[seat], G.trump, G.decl.count, ids)) return;
   const set = new Set(ids);
   G.decl.cards[seat] = G.hands[seat].filter(c => set.has(c.id));
@@ -255,7 +255,14 @@ function contribute(room, seat, ids){
   log(room, '<b>'+nameOf(room,seat)+'</b> plays '+
             G.decl.cards[seat].map(c => c.r+R.GLYPH[c.s]).join(' ')+'.');
   const next = (seat+1)%4;
-  if(next === G.decl.leader){ G.resolving = true; push(room); return later(room, 1600, () => resolveDeclare(room)); }
+  if(next === G.decl.leader){
+    // Everyone has contributed. Close the turn so a second click can't strip
+    // another card out of the last player's hand.
+    G.decl.turn = null;
+    G.resolving = true;
+    push(room);
+    return later(room, 1600, () => resolveDeclare(room));
+  }
   G.decl.turn = next;
   push(room); drive(room);
 }
@@ -378,6 +385,7 @@ function drive(room){
         thirdHigh:s.thirdHigh, onContract: teamOf(G.highBid.seat)===teamOf(seat),
         teamKept: sum(seat,(seat+2)%4), oppKept: sum((seat+1)%4,(seat+3)%4)
       });
+      if(!card){ console.error('[bug] no legal card for seat', seat, 'hand', G.hands[seat].length); return; }
       playCard(room, seat, card.id);
     });
   }
@@ -586,7 +594,7 @@ setInterval(() => {
   for(const r of rooms.values()){
     const G = r.G;
     if(!G || r.timer) continue;                    // a beat is already on its way
-    if(G.resolving && G.decl && G.decl.turn === G.decl.leader){
+    if(G.resolving && G.decl && G.decl.turn === null){
       console.warn('[watchdog] lost declaration beat, room', r.code);
       resolveDeclare(r);
     } else if(G.resolving && G.trick.length === 4){

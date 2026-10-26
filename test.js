@@ -157,6 +157,17 @@ ok(pick.id!=='AH', "nor on partner's queen when void in the suit");
 pick=R.botPlay(H(['AH','9D','3D']), [{seat:1,card:C('KC')}], 'S', ctx(2));
 ok(pick.id==='AH', "but does trump an opponent's king when it is the only winner");
 
+
+/* ---- a declaration must not let anyone play twice ---- */
+ok(R.validContribution(H(['7S','3S','9D']),'S',2,['7S','3S']), "two trumps: both go in");
+ok(!R.validContribution(H(['7S','3S','9D']),'S',2,['7S','9D']), "cannot hold a trump back");
+ok(R.validContribution(H(['7S','9D','KC']),'S',2,['7S','9D']), "one trump plus any card");
+ok(!R.validContribution(H(['7S','9D','KC']),'S',2,['9D','KC']), "the single trump must go in");
+ok(R.validContribution(H(['9D','KC','2H']),'S',2,['9D','KC']), "no trumps: any two");
+ok(!R.validContribution(H(['9D','KC','2H']),'S',2,['9D']), "wrong count is refused");
+ok(!R.validContribution(H(['9D','KC']),'S',2,['9D','9D']), "the same card twice is refused");
+ok(R.validContribution(H(['9D']),'S',2,['9D']), "short of cards, you give what you have");
+
 out.push(fails? ("\n"+fails+" FAILED") : "\nall "+out.length+" checks passed");
 console.log(out.join("\n"));
 process.exit(fails?1:0);
