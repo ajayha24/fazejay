@@ -567,3 +567,36 @@ html,body{min-height:100%}
 /* the kitty waiting in the middle of the table */
 .kitty{display:flex;gap:4px;margin:6px 0 2px}
 .kitty .back{margin:0;width:26px;height:37px}
+
+/* the card that is currently taking the trick */
+/* outranks the generic playable ring, so the winning card reads at a glance */
+.hand.live .card.playable.takes,.card.takes{
+  box-shadow:0 0 0 3px var(--sage),0 10px 26px rgba(0,0,0,.45);
+}
+.card .wins{
+  position:absolute;left:50%;transform:translateX(-50%);bottom:-9px;
+  background:var(--sage);color:#10231a;border-radius:999px;
+  font-family:"Archivo",sans-serif;font-size:9.5px;font-weight:700;
+  letter-spacing:.07em;text-transform:uppercase;padding:2px 8px;white-space:nowrap;
+}
+.hand .card.takes:hover .wins{bottom:-11px}
+
+/* post-hand review */
+.review{
+  border-top:1px solid var(--line);margin-top:14px;padding-top:13px;
+  max-height:30vh;overflow-y:auto;
+}
+.revhead{margin:0 0 9px;font-size:14.5px;color:var(--text)}
+.revhead b{color:var(--brass)}
+.revline{
+  margin:0 0 7px;font-size:13.5px;color:var(--muted);line-height:1.45;
+  padding-left:11px;border-left:2px solid var(--rouge);
+}
+.revline.good{border-left-color:var(--sage);color:var(--text)}
+.revline .rt{
+  font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--brass);margin-right:5px;
+}
+.revline b{color:var(--ivory)}
+.revline b.cr{color:var(--rouge-bright)}
+.revline b.ck{color:var(--ivory)}

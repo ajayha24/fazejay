@@ -90,6 +90,7 @@ function connect(then){
       history.replaceState({}, '', '/t/'+m.code);
     }
     else if(m.type==='error') showError(m.message);
+    else if(m.type==='review') showReview(m);
   };
   ws.onclose=()=>{ connected=false; banner(true); setTimeout(()=>connect(rejoin),1500); };
   ws.onerror=()=>{};
@@ -364,12 +365,23 @@ function renderContract(){
   }
 }
 
+/* Would this card be winning the trick if played right now? With everyone else
+   already in, that is final; otherwise it only holds against what is down. */
+function wouldTake(card){
+  if(!V.trump || !V.trick) return false;
+  if(!V.trick.length) return false;                 // nothing to beat yet
+  const probe=V.trick.concat([{seat:V.mySeat, card}]);
+  return localWinner(probe).seat===V.mySeat;
+}
+const takeIsFinal=()=>V.trick && V.trick.length===3;
+
 function renderHand(){
   // Rebuilding the DOM restarts every running animation, so bail out when
   // nothing about the hand has changed. This is what made the deal stutter.
   const h0=el('hand');
   const sig=[V.mySeat, V.handNo, (V.hand||[]).map(c=>c.id).join(','),
              (V.legal||[]).join(','), [...discardSel].join(','),
+             (V.trick||[]).map(x=>x.card.id).join(','),
              V.phase, V.iAmReady, !!(V.mustPlay)].join('|');
   if(h0.dataset.sig===sig) return;
   h0.dataset.sig=sig;
@@ -385,11 +397,15 @@ function renderHand(){
     if(discarding||contributing) cls='playable'+(discardSel.has(c.id)?' picked':'');
     else if(V.legal) cls=V.legal.includes(c.id)?'playable':'blocked';
     const disabled=!contributing&&V.legal&&!V.legal.includes(c.id);
+    const wins=!discarding&&!contributing&&V.legal&&V.legal.includes(c.id)&&wouldTake(c);
+    if(wins) cls+=' takes';
     let style='';
     if(anim){ cls+=' dealt'; style=dealStyle(anim, idx, V.mySeat, 2); }
-    return cardHTML(c,{trump:V.trump&&isTrumpC(c),cls})
+    let html=cardHTML(c,{trump:V.trump&&isTrumpC(c),cls})
       .replace('<span class="card','<button type="button" data-id="'+c.id+'"'+(disabled?' disabled':'')+style+' class="card')
       .replace(/<\/span>$/,'</button>');
+    if(wins) html=html.replace('</button>','<span class="wins">'+(takeIsFinal()?'takes it':'winning')+'</span></button>');
+    return html;
   }).join('');
   h.querySelectorAll('button[data-id]').forEach(b=>b.onclick=()=>{
     const id=b.dataset.id;
@@ -613,10 +629,58 @@ function showResult(){
   const action=V.phase==='gameover'
     ? (V.isHost?'<button class="btn solid" id="again">New game</button>':'<span class="waiting">Waiting for the host…</span>')
     : '<button class="btn solid" id="next">Shuffle &amp; deal · '+nameOf((V.dealer+1)%4)+' deals</button>';
+  const canReview = V.mySeat!==null;
   paint('result','<div class="panel"><h3>'+(V.phase==='gameover'?'Game over':'Hand '+V.handNo)+'</h3>'+
-    '<p class="verdict">'+verdict+'</p><div class="result">'+rows+'</div><div class="row">'+action+'</div></div>');
+    '<p class="verdict">'+verdict+'</p><div class="result">'+rows+'</div>'+
+    (canReview?'<div class="review" id="reviewBox"><button class="btn quiet" id="reviewBtn">How did I play?</button></div>':'')+
+    '<div class="row">'+action+'</div></div>');
+  const rb=el('reviewBtn'); if(rb) rb.onclick=requestReview;
   const n=el('next'); if(n) n.onclick=()=>{ closeOv(); send({type:'next'}); };
   const a=el('again'); if(a) a.onclick=()=>{ closeOv(); send({type:'newgame'}); };
+}
+
+/* ---------------- post-hand review ---------------- */
+let reviewPending=false;
+function requestReview(){
+  reviewPending=true;
+  const b=el('reviewBtn');
+  if(b){ b.textContent='Working it out…'; b.disabled=true; }
+  send({type:'review'});
+}
+function showReview(m){
+  reviewPending=false;
+  const box=el('reviewBox');
+  if(!box) return;
+  if(m.unavailable){
+    box.innerHTML='<p class="dek" style="margin:0">'+
+      (m.unavailable==='declaration'
+        ? 'No review for a hand with a declaration in it — several cards land at once, so there is no single choice to weigh.'
+        : 'Could not work this hand out.')+'</p>';
+    return;
+  }
+  const par=m.par, took=m.took;
+  let head;
+  if(took===null||took===undefined) head='Best play was worth <b>'+par+'</b> of 6.';
+  else if(took>=par) head='You took <b>'+took+'</b> of 6 — the most this deal could give you.';
+  else head='You took <b>'+took+'</b> of 6. Best play was worth <b>'+par+'</b>.';
+
+  let body;
+  if(!m.notes.length){
+    body='<p class="revline good">Every card you played held its value. Nothing to change.</p>';
+  }else{
+    body=m.notes.map(n=>{
+      const better=n.better.map(id=>{
+        const c={r:id.slice(0,-1),s:id.slice(-1)};
+        return '<b class="'+(RED[c.s]?'cr':'ck')+'">'+c.r+GLYPH[c.s]+'</b>';
+      }).join(' or ');
+      const played='<b class="'+(RED[n.card.s]?'cr':'ck')+'">'+n.card.r+GLYPH[n.card.s]+'</b>';
+      return '<p class="revline"><span class="rt">Trick '+n.trickNo+'</span> '+
+        (n.lead?'led ':'played ')+played+' — cost <b>'+n.cost+'</b> unit'+(n.cost>1?'s':'')+
+        '. '+better+' would have held.</p>';
+    }).join('');
+  }
+  box.innerHTML='<p class="revhead">'+head+'</p>'+body+
+    '<p class="dek" style="margin:10px 0 0;font-size:11.5px">Worked out with every hand face up, so it is the best that was ever available — not what you could have known at the time.</p>';
 }
 
 /* ---------------- chrome ---------------- */

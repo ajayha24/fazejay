@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const R = require('./game');
+const SOLVER = require('./solver');
 
 const PORT = process.env.PORT || 3000;
 const PUB  = path.join(__dirname, 'public');
@@ -221,6 +222,11 @@ function serveDraws(room){
 
 function startPlay(room){
   const G = room.G;
+  // Keep the deal as it stands now: with every hand known, the whole five
+  // tricks can be solved exactly afterwards for the review.
+  G.startHands = G.hands.map(h => h.slice());
+  G.history = [];
+  G.declared = false;
   G.phase = 'playing';
   G.leader = G.highBid.seat;
   G.turn = G.leader;
@@ -250,6 +256,7 @@ function playCard(room, seat, cardId){
   G.hands[seat] = G.hands[seat].filter(c => c.id!==card.id);
   G.trick.push({seat, card});
   noteCard(G, seat, card);
+  if(G.history) G.history.push({seat, card});
   if(G.trick.length===1) log(room, '<b>'+nameOf(room,seat)+'</b> leads '+card.r+R.GLYPH[card.s]+'.');
   if(R.isTrump(card, G.trump)){
     if(!G.highTrump || R.trumpStrength(card,G.trump) > R.trumpStrength(G.highTrump.card,G.trump))
@@ -292,6 +299,8 @@ function contribute(room, seat, ids){
   G.decl.cards[seat] = G.hands[seat].filter(c => set.has(c.id));
   G.hands[seat] = G.hands[seat].filter(c => !set.has(c.id));
   for(const c of G.decl.cards[seat]) G.seen.push(c.id);
+  G.declared = true;                      // a declaration is several cards at once
+
   if(G.decl.cards[seat].some(c => !R.isTrump(c, G.trump))) G.voidTrump[seat] = true;
   log(room, '<b>'+nameOf(room,seat)+'</b> plays '+
             G.decl.cards[seat].map(c => c.r+R.GLYPH[c.s]).join(' ')+'.');
@@ -621,6 +630,24 @@ wss.on('connection', ws => {
       case 'contribute':
         if(seat!==null) contribute(room, seat, m.ids);
         return;
+      case 'review': {
+        if(seat===null || !room.G || !room.G.startHands) return;
+        const G = room.G;
+        if(G.phase!=='handover' && G.phase!=='gameover') return;
+        if(G.declared) return send(ws, {type:'review', unavailable:'declaration'});
+        try{
+          const r = SOLVER.reviewHand({
+            start: G.startHands, plays: G.history, trump: G.trump,
+            leader: G.highBid.seat, seat, enforce: room.settings.enforceRenege
+          });
+          const took = G.result ? G.result.units[seat % 2] : null;
+          return send(ws, {type:'review', par:r.par, took,
+            notes:r.notes.map(n => ({
+              trickNo: n.trickNo, card: n.card, cost: n.cost, lead: n.lead,
+              better: n.better.map(c => c.id)
+            }))});
+        }catch(e){ console.error('[review]', e); return send(ws, {type:'review', unavailable:'error'}); }
+      }
       case 'next':
         if(seat!==null) nextHand(room);
         return;
