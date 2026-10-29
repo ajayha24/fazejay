@@ -678,3 +678,17 @@ html,body{min-height:100%}
   .namegrid{grid-template-columns:repeat(3,1fr)}
   .emgrid{grid-template-columns:repeat(6,1fr)}
 }
+
+/* ---------- lifetime record ---------- */
+.statswrap{overflow-x:auto}
+table.stats{width:100%; border-collapse:collapse; font-size:13.5px; font-variant-numeric:tabular-nums}
+table.stats th{
+  text-align:right; font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--muted); font-weight:600; padding:0 0 7px 12px; white-space:nowrap;
+}
+table.stats th:first-child, table.stats td:first-child{text-align:left; padding-left:0}
+table.stats td{text-align:right; padding:7px 0 7px 12px; border-top:1px solid var(--line); color:var(--text)}
+table.stats td.who{color:var(--ivory); font-weight:600; white-space:nowrap}
+table.stats td.pos{color:var(--sage)}
+table.stats td.neg{color:var(--rouge-bright)}
+table.stats td.none{text-align:center; color:var(--muted); padding:18px 0}

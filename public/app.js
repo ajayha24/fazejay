@@ -12,7 +12,9 @@ let ws=null, V=null, discardSel=new Set(), connected=false, myToken=null;
 let dealKey=null, dealAt=0;          // which hand we last animated, and when
 let profiles={}, roster=[];          // everyone's emoji, and who can play
 let pickName=null, pickEmoji=null;   // lobby selections before joining
+let makingProfile=false, newProfName='';
 let chatSeen=0;                      // newest chat id already shown
+let stats={};                        // lifetime record, by name
 
 const EMOJI=['🍀','🔥','🐺','🦊','🐸','🦅','🐢','🦈','🐝','🌙','⭐️','⚡️','🌊','🍺',
              '☕️','🍕','🌮','🎸','🎲','🏒','⚽️','🎯','🧊','👑','💀','🤠','🐙','🌵'];
@@ -98,8 +100,16 @@ function connect(then){
       myToken=m.token; store.token=m.token; store.lastCode=m.code;
       history.replaceState({}, '', '/t/'+m.code);
     }
-    else if(m.type==='error') showError(m.message);
+    else if(m.type==='profilemade'){
+      pickName=m.name; makingProfile=false; newProfName='';
+      store.name=m.name; if(pickEmoji) store.emoji=pickEmoji;
+      if(ovKind==='lobby') paintLobby();
+    }
+    else if(m.type==='error'){
+      if(ovKind==='lobby') flashPick(m.message); else showError(m.message);
+    }
     else if(m.type==='review') showReview(m);
+    else if(m.type==='stats'){ stats=m.map||{}; if(ovKind==='stats') paintStats(); }
     else if(m.type==='profiles'){
       profiles=m.map||{}; roster=m.roster||[];
       if(V) render();
@@ -588,12 +598,27 @@ function paintLobby(){
     body='<div class="panel"><h3>Kitchen Table 45s</h3>'+
       '<p class="dek">Four players, two teams, six units a hand. Start a table and send the link to three friends — empty seats are covered by bots.</p>'+
       '<h4 class="pickhead">Who are you?</h4>'+
-      '<div class="namegrid">'+(roster.length?roster:[store.name]).filter(Boolean).map(n=>
-        '<button class="nameopt" data-name="'+n+'" aria-pressed="'+(n===pickName)+'">'+
-        '<span class="em">'+(profiles[n]||'·')+'</span><span class="nm">'+n+'</span></button>').join('')+'</div>'+
-      '<h4 class="pickhead">Your emoji</h4>'+
-      '<div class="emgrid">'+EMOJI.map(e=>
-        '<button class="emopt" data-emoji="'+e+'" aria-pressed="'+(e===pickEmoji)+'">'+e+'</button>').join('')+'</div>'+
+      (roster.length
+        ? '<div class="namegrid">'+roster.map(n=>
+            '<button class="nameopt" data-name="'+esc(n)+'" aria-pressed="'+(n===pickName)+'">'+
+            '<span class="em">'+(profiles[n]||'·')+'</span><span class="nm">'+esc(n)+'</span></button>').join('')+'</div>'
+        : '<p class="dek" style="margin:8px 0 0">No profiles yet — make the first one.</p>')+
+      '<div class="row" style="margin-top:9px">'+
+        '<button class="btn quiet tiny" id="newProfBtn">'+(makingProfile?'Cancel':'+ New profile')+'</button>'+
+      '</div>'+
+      (makingProfile
+        ? '<div class="lobby" style="margin-top:10px">'+
+            '<label>Profile name<input id="profName" maxlength="14" placeholder="Your name" value="'+esc(newProfName)+'"></label>'+
+          '</div>'+
+          '<h4 class="pickhead">Pick an emoji</h4>'+
+          '<div class="emgrid">'+EMOJI.map(e=>
+            '<button class="emopt" data-emoji="'+e+'" aria-pressed="'+(e===pickEmoji)+'">'+e+'</button>').join('')+'</div>'+
+          '<div class="row" style="margin-top:12px"><button class="btn solid" id="makeProfBtn">Create profile</button></div>'
+        : (pickName
+            ? '<h4 class="pickhead">Your emoji</h4>'+
+              '<div class="emgrid">'+EMOJI.map(e=>
+                '<button class="emopt" data-emoji="'+e+'" aria-pressed="'+(e===pickEmoji)+'">'+e+'</button>').join('')+'</div>'
+            : ''))+
       (code?'<div class="lobby" style="margin-top:14px">'+
         '<label>Table code<input id="code" value="'+code+'" maxlength="4"></label></div>':'')+
       '<h4 class="pickhead">Your deck</h4>'+
@@ -610,18 +635,35 @@ function paintLobby(){
   if(!pickName && store.name && (!roster.length || roster.includes(store.name))) pickName=store.name;
   if(!pickEmoji && store.emoji) pickEmoji=store.emoji;
   ov.querySelectorAll('[data-name]').forEach(b=>b.onclick=()=>{
-    pickName=b.dataset.name;
-    if(!pickEmoji && profiles[pickName]) pickEmoji=profiles[pickName];
+    pickName=b.dataset.name; makingProfile=false;
+    pickEmoji=profiles[pickName]||pickEmoji;
     paintLobby();
   });
-  ov.querySelectorAll('[data-emoji]').forEach(b=>b.onclick=()=>{ pickEmoji=b.dataset.emoji; paintLobby(); });
+  ov.querySelectorAll('[data-emoji]').forEach(b=>b.onclick=()=>{
+    pickEmoji=b.dataset.emoji;
+    if(!makingProfile && pickName) send({type:'profile', name:pickName, avatar:pickEmoji});
+    paintLobby();
+  });
+  const np=el('newProfBtn');
+  if(np) np.onclick=()=>{ makingProfile=!makingProfile; if(makingProfile){ pickName=null; } paintLobby();
+    const f=el('profName'); if(f) f.focus(); };
+  const mk=el('makeProfBtn');
+  if(mk) mk.onclick=()=>{
+    const nm=(el('profName').value||'').trim();
+    if(!nm) return flashPick('Type a name for the profile.');
+    if(!pickEmoji) return flashPick('Pick an emoji too.');
+    newProfName=nm;
+    send({type:'newprofile', name:nm, avatar:pickEmoji});
+  };
+  const pf=el('profName');
+  if(pf) pf.oninput=()=>{ newProfName=pf.value; };
   ov.querySelectorAll('[data-kitty]').forEach(b=>b.onclick=()=>
     send({type:'settings', settings:{kitty:Number(b.dataset.kitty)}}));
   const cp=el('copyLink'); if(cp) cp.onclick=copyInvite;
   const sb=el('startBtn'); if(sb) sb.onclick=()=>send({type:'start'});
   ov.querySelectorAll('[data-sit]').forEach(b=>b.onclick=()=>send({type:'sit', seat:+b.dataset.sit}));
   const identify=()=>{
-    if(!pickName){ flashPick('Pick who you are first.'); return false; }
+    if(!pickName){ flashPick('Pick a profile first, or make one.'); return false; }
     store.name=pickName;
     if(pickEmoji){ store.emoji=pickEmoji; send({type:'profile', name:pickName, avatar:pickEmoji}); }
     return true;
@@ -666,7 +708,8 @@ function showResult(){
     (V.settings.defendersScore?'<div class="resrow"><span class="k">'+label(r.dt)+'</span><span class="v">+'+r.defDelta+'</span></div>':'')+
     '<div class="resrow"><span class="k">Score</span><span class="v">Us '+V.scores[myTeam]+' · Them '+V.scores[1-myTeam]+'</span></div>';
   const action=V.phase==='gameover'
-    ? (V.isHost?'<button class="btn solid" id="again">New game</button>':'<span class="waiting">Waiting for the host…</span>')
+    ? (V.isHost?'<button class="btn solid" id="again">New game</button>':'<span class="waiting">Waiting for the host…</span>')+
+      '<button class="btn quiet" id="statsBtn">Lifetime record</button>'
     : '<button class="btn solid" id="next">Shuffle &amp; deal · '+nameOf((V.dealer+1)%4)+' deals</button>';
   const canReview = V.mySeat!==null;
   paint('result','<div class="panel"><h3>'+(V.phase==='gameover'?'Game over':'Hand '+V.handNo)+'</h3>'+
@@ -674,6 +717,7 @@ function showResult(){
     (canReview?'<div class="review" id="reviewBox"><button class="btn quiet" id="reviewBtn">How did I play?</button></div>':'')+
     '<div class="row">'+action+'</div></div>');
   const rb=el('reviewBtn'); if(rb) rb.onclick=requestReview;
+  const sb=el('statsBtn'); if(sb) sb.onclick=()=>{ send({type:'stats'}); paintStats(); };
   const n=el('next'); if(n) n.onclick=()=>{ closeOv(); send({type:'next'}); };
   const a=el('again'); if(a) a.onclick=()=>{ closeOv(); send({type:'newgame'}); };
 }
@@ -718,6 +762,52 @@ function renderChat(){
 }
 const esc=t=>String(t).replace(/[&<>"']/g,ch=>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+/* ---------------- lifetime record ---------------- */
+let statsMode='pvp';
+function paintStats(){
+  const bucket=n=>{
+    const r=stats[n]||{};
+    if(r.games!==undefined) return statsMode==='bots'?r:null;   // older flat record
+    return r[statsMode]||null;
+  };
+  const names=Object.keys(stats).filter(n=>{ const r=bucket(n); return r&&r.hands; });
+  names.sort((a,b)=>{
+    const A=bucket(a),B=bucket(b);
+    const wa=A.games?A.wins/A.games:0, wb=B.games?B.wins/B.games:0;
+    return (wb-wa)||(B.books-A.books);
+  });
+  const rows = names.length ? names.map(n=>{
+    const r=bucket(n);
+    const pct=r.games?Math.round(100*r.wins/r.games)+'%':'—';
+    const bph=r.hands?(r.books/r.hands).toFixed(2):'—';
+    const madepct=r.bids?Math.round(100*r.made/r.bids)+'%':'—';
+    return '<tr><td class="who">'+(profiles[n]||'')+' '+esc(n)+'</td>'+
+      '<td>'+r.wins+'/'+r.games+'</td><td>'+pct+'</td>'+
+      '<td>'+r.books+'</td><td>'+bph+'</td>'+
+      '<td>'+r.bids+'</td><td>'+madepct+'</td>'+
+      '<td class="'+(r.points>=0?'pos':'neg')+'">'+(r.points>0?'+':'')+r.points+'</td></tr>';
+  }).join('') : '<tr><td colspan="8" class="none">'+
+      (statsMode==='pvp'
+        ? 'No hands yet with all four seats filled by people.'
+        : 'No hands yet against the computer.')+'</td></tr>';
+
+  paint('stats','<div class="panel" style="max-width:660px"><h3>Lifetime record</h3>'+
+    '<div class="deckrow" style="margin:2px 0 12px">'+
+      '<button class="deckopt" data-smode="pvp" aria-pressed="'+(statsMode==='pvp')+'"><span class="nm">Against people</span></button>'+
+      '<button class="deckopt" data-smode="bots" aria-pressed="'+(statsMode==='bots')+'"><span class="nm">Against the computer</span></button>'+
+    '</div>'+
+    '<p class="dek">'+(statsMode==='pvp'
+      ? 'Only hands where all four seats were human when the first book was played.'
+      : 'Hands with at least one seat played by a bot.')+'</p>'+
+    '<div class="statswrap"><table class="stats">'+
+    '<thead><tr><th>Player</th><th>Won</th><th>Win rate</th><th>Books</th>'+
+    '<th>Per hand</th><th>Bids</th><th>Made</th><th>Points</th></tr></thead>'+
+    '<tbody>'+rows+'</tbody></table></div>'+
+    '<div class="row" style="margin-top:16px"><button class="btn quiet" id="closeStats">Close</button></div></div>');
+  ov.querySelectorAll('[data-smode]').forEach(b=>b.onclick=()=>{ statsMode=b.dataset.smode; paintStats(); });
+  el('closeStats').onclick=closeOv;
+}
 
 /* ---------------- post-hand review ---------------- */
 let reviewPending=false;
@@ -765,6 +855,7 @@ function showReview(m){
 
 /* ---------------- chrome ---------------- */
 el('btnInvite').onclick=copyInvite;
+el('btnStats').onclick=()=>{ send({type:'stats'}); paintStats(); };
 el('btnDeck').onclick=()=>{
   paint('deck','<div class="panel"><h3>Choose your deck</h3>'+
     '<p class="dek">Just for you — everyone at the table picks their own.</p>'+

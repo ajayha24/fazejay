@@ -37,9 +37,12 @@ const server = http.createServer((req,res) => {
 const rooms = new Map();
 let chatId = 0;
 
-/* Who plays at this table. Everyone picks a name from the list rather than
-   typing one, so seats, profile pictures and chat all line up. */
-const ROSTER = ['Ajay','Izak','Tim','Johanna','Kate','Emma','Meghan','Jerry','Ryan','Nia','Andrew','Evan'];
+/* Profiles are made by whoever sits down: type a name once and it joins the
+   list everyone picks from afterwards. */
+const NAME_OK = /^[A-Za-z0-9][A-Za-z0-9 '\-]{0,13}$/;
+const roster = () => Object.keys(profiles);
+const findName = want =>
+  roster().find(n => n.toLowerCase() === String(want||'').trim().toLowerCase());
 
 /* An emoji each, kept by name and written to disk so a pick outlives a
    restart. Each browser also remembers its own and offers it again on join,
@@ -47,6 +50,41 @@ const ROSTER = ['Ajay','Izak','Tim','Johanna','Kate','Emma','Meghan','Jerry','Ry
 const PROFILES_FILE = path.join(__dirname, 'profiles.json');
 let profiles = {};
 try { profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, 'utf8')); } catch {}
+/* Lifetime record, by name. Same idea as the emoji: kept on disk so it
+   outlives a restart. */
+const STATS_FILE = path.join(__dirname, 'stats.json');
+let stats = {};
+try { stats = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')); } catch {}
+const blank = () => ({games:0, wins:0, hands:0, books:0, points:0, bids:0, made:0, set:0});
+/* Two records per player: hands against a full table of people, and hands with
+   at least one bot in a seat. A hand only counts as against people if all four
+   seats were human when the first book was played. */
+function rec(name, mode){
+  let s = stats[name];
+  if(!s) s = stats[name] = {};
+  if(s.games !== undefined) s = stats[name] = {bots:s, pvp:blank()};   // older flat record
+  s[mode] = s[mode] || blank();
+  return s[mode];
+}
+let statsSaveTimer = null;
+function saveStats(){
+  clearTimeout(statsSaveTimer);
+  statsSaveTimer = setTimeout(() => {
+    fs.writeFile(STATS_FILE, JSON.stringify(stats), e => { if(e) console.error('[stats]', e.message); });
+  }, 600);
+}
+/* Only real players have a record — bots filling empty seats do not. */
+const humanAt = (room, s) => (room.seats[s] && !room.seats[s].bot) ? room.seats[s].name : null;
+const sendStats = ws => send(ws, {type:'stats', map:stats});
+
+function broadcastProfiles(origin){
+  if(origin) sendProfiles(origin);                  // the sender may not be seated yet
+  for(const r of rooms.values()){
+    for(const p of r.seats) if(p) for(const sk of p.sockets) sendProfiles(sk);
+    for(const sk of (r.watchers || [])) sendProfiles(sk);
+  }
+}
+
 let profileSaveTimer = null;
 function saveProfiles(){
   clearTimeout(profileSaveTimer);
@@ -54,7 +92,7 @@ function saveProfiles(){
     fs.writeFile(PROFILES_FILE, JSON.stringify(profiles), e => { if(e) console.error('[profiles]', e.message); });
   }, 400);
 }
-const sendProfiles = ws => send(ws, {type:'profiles', roster:ROSTER, map:profiles});
+const sendProfiles = ws => send(ws, {type:'profiles', roster:roster(), map:profiles});
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function newCode(){
   let c;
@@ -357,8 +395,13 @@ function resolveDeclare(room){
 function finishTrick(room){
   const G = room.G;
   G.resolving = false;
+  // Decided on the first book: four people, or anything less.
+  if(G.trickNo === 0)
+    G.mode = [0,1,2,3].every(s => humanAt(room, s)) ? 'pvp' : 'bots';
   const w = R.trickWinner(G.trick, G.trump);
   G.units[teamOf(w.seat)]++;
+  const booker = humanAt(room, w.seat);
+  if(booker){ rec(booker, G.mode||'bots').books++; saveStats(); }
   log(room, '<b>'+nameOf(room,w.seat)+'</b> takes trick '+(G.trickNo+1)+' with '+w.card.r+R.GLYPH[w.card.s]+'.');
   G.trick = []; G.trickNo++;
   G.leader = w.seat; G.turn = w.seat;
@@ -385,12 +428,32 @@ function scoreHand(room){
   log(room, '<b>'+nameOf(room,G.highBid.seat)+'</b> bid '+G.highBid.value+' and took '+units[bt]+
             ' — '+(made?'made it':'set')+'.', 'hi');
 
+  for(let s=0;s<4;s++){
+    const nm = humanAt(room, s);
+    if(!nm) continue;
+    const r = rec(nm, G.mode||'bots');
+    r.hands++;
+    r.points += (teamOf(s) === bt) ? bidDelta : defDelta;
+    if(s === G.highBid.seat){ r.bids++; if(made) r.made++; else r.set++; }
+  }
+  saveStats();
+
   G.result = {bidderSeat:G.highBid.seat, bt, dt, quota, units, tricks, htTeam, made,
               bidDelta, defDelta, bid:G.highBid.value, trump:G.trump,
               highTrump: G.highTrump ? G.highTrump.card : null};
   G.phase = 'handover';
   const over = G.scores.findIndex(v => v >= s.target);
-  if(over >= 0){ G.winner = over; G.phase = 'gameover'; }
+  if(over >= 0){
+    G.winner = over; G.phase = 'gameover';
+    for(let p=0;p<4;p++){
+      const nm = humanAt(room, p);
+      if(!nm) continue;
+      const r = rec(nm, G.mode||'bots');
+      r.games++;
+      if(teamOf(p) === over) r.wins++;
+    }
+    saveStats();
+  }
   push(room);
 }
 
@@ -572,6 +635,7 @@ function send(ws, obj){ if(ws.readyState===1) ws.send(JSON.stringify(obj)); }
 wss.on('connection', ws => {
   ws.room = null; ws.token = null;
   sendProfiles(ws);              // the roster, before anyone picks a name
+  sendStats(ws);
 
   ws.on('message', raw => {
     let m; try { m = JSON.parse(raw); } catch { return; }
@@ -581,9 +645,9 @@ wss.on('connection', ws => {
       const r = createRoom();
       r.watchers = new Set();
       const token = m.token || crypto.randomUUID();
-      const host = String(m.name||'');
-      if(!ROSTER.includes(host))
-        return send(ws, {type:'error', message:'Pick who you are from the list first.'});
+      const host = findName(m.name);
+      if(!host)
+        return send(ws, {type:'error', message:'Pick a profile first, or make one.'});
       r.seats[0] = {token, name:host, bot:false, sockets:new Set([ws]), away:false};
       r.hostToken = token;
       ws.room = r; ws.token = token;
@@ -604,11 +668,11 @@ wss.on('connection', ws => {
         r.seats[seat].sockets.add(ws);
         r.seats[seat].away = false;
       } else {
-        const want = String(m.name||'');
-        if(!ROSTER.includes(want))
-          return send(ws, {type:'error', message:'Pick who you are from the list first.'});
+        const want = findName(m.name);
+        if(!want)
+          return send(ws, {type:'error', message:'Pick a profile first, or make one.'});
         if(r.seats.some(p => p && p.name === want))
-          return send(ws, {type:'error', message:want+' is already at this table. Pick someone else.'});
+          return send(ws, {type:'error', message:want+' is already at this table. Pick another profile.'});
         seat = m.seat!==undefined && m.seat!==null && !r.seats[m.seat] ? Number(m.seat)
              : r.seats.findIndex(p => !p);
         if(seat === -1 || !(seat>=0 && seat<4) || r.seats[seat]){
@@ -623,19 +687,26 @@ wss.on('connection', ws => {
       return push(r);
     }
 
-    if(m.type==='profile'){
-        const name = String(m.name||'');
-        if(!ROSTER.includes(name)) return;
-        const emoji = String(m.avatar||'');
-        if(emoji && ![...emoji].length) return;
-        if(emoji.length > 16) return;                   // one emoji, not a sentence
-        if(emoji) profiles[name] = emoji; else delete profiles[name];
+    if(m.type==='stats'){ return sendStats(ws); }
+    if(m.type==='newprofile'){
+        const want = String(m.name||'').trim().replace(/\s+/g,' ');
+        if(!NAME_OK.test(want))
+          return send(ws, {type:'error', message:'Names are up to 14 letters, numbers, spaces, apostrophes or hyphens.'});
+        if(findName(want))
+          return send(ws, {type:'error', message:'There is already a profile called '+findName(want)+'.'});
+        profiles[want] = String(m.avatar||'🙂').slice(0,16);
         saveProfiles();
-        sendProfiles(ws);                               // the sender may not be seated yet
-        for(const r of rooms.values()){
-          for(const p of r.seats) if(p) for(const sk of p.sockets) sendProfiles(sk);
-          for(const sk of (r.watchers||[])) sendProfiles(sk);
-        }
+        broadcastProfiles(ws);
+        return send(ws, {type:'profilemade', name:want});
+      }
+    if(m.type==='profile'){
+        const name = findName(m.name);
+        if(!name) return;
+        const emoji = String(m.avatar||'');
+        if(!emoji || emoji.length > 16) return;         // one emoji, not a sentence
+        if(emoji) profiles[name] = emoji;
+        saveProfiles();
+        broadcastProfiles(ws);
       return;
     }
 
