@@ -77,6 +77,15 @@ function saveStats(){
 const humanAt = (room, s) => (room.seats[s] && !room.seats[s].bot) ? room.seats[s].name : null;
 const sendStats = ws => send(ws, {type:'stats', map:stats});
 
+/* An avatar is either one emoji or a small cropped photo as a data URL. */
+const PHOTO = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+function okAvatar(v){
+  const s = String(v||'');
+  if(!s) return null;
+  if(PHOTO.test(s)) return s.length <= 160000 ? s : null;     // a cropped square, not an album
+  return [...s].length && s.length <= 16 ? s : null;
+}
+
 function broadcastProfiles(origin){
   if(origin) sendProfiles(origin);                  // the sender may not be seated yet
   for(const r of rooms.values()){
@@ -694,7 +703,10 @@ wss.on('connection', ws => {
           return send(ws, {type:'error', message:'Names are up to 14 letters, numbers, spaces, apostrophes or hyphens.'});
         if(findName(want))
           return send(ws, {type:'error', message:'There is already a profile called '+findName(want)+'.'});
-        profiles[want] = String(m.avatar||'🙂').slice(0,16);
+        const av = okAvatar(m.avatar);
+        if(m.avatar && !av)
+          return send(ws, {type:'error', message:'That picture could not be used — try a smaller crop.'});
+        profiles[want] = av || '🙂';
         saveProfiles();
         broadcastProfiles(ws);
         return send(ws, {type:'profilemade', name:want});
@@ -702,9 +714,10 @@ wss.on('connection', ws => {
     if(m.type==='profile'){
         const name = findName(m.name);
         if(!name) return;
-        const emoji = String(m.avatar||'');
-        if(!emoji || emoji.length > 16) return;         // one emoji, not a sentence
-        if(emoji) profiles[name] = emoji;
+        const av2 = okAvatar(m.avatar);
+        if(!av2)
+          return send(ws, {type:'error', message:'That picture could not be used — try a smaller crop.'});
+        profiles[name] = av2;
         saveProfiles();
         broadcastProfiles(ws);
       return;

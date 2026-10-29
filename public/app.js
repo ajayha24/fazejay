@@ -256,7 +256,7 @@ function renderSeats(){
     const mine=V.mySeat!==null&&teamOf(seat)===teamOf(V.mySeat);
     const plate='<div class="plate'+(isTurn?' active':'')+(mine?' us':'')+'">'+
       '<span class="dot '+dot+'"></span>'+
-      '<span class="avatar">'+(profiles[nameOf(seat)]||nameOf(seat).slice(0,1).toUpperCase())+'</span>'+
+      '<span class="avatar">'+avatarHTML(nameOf(seat))+'</span>'+
       '<span class="pname">'+(seat===V.mySeat?'You':nameOf(seat))+'</span>'+
       (roles.length?'<span class="prole">'+roles.join(' · ')+'</span>':'')+chip+'</div>';
 
@@ -601,7 +601,7 @@ function paintLobby(){
       (roster.length
         ? '<div class="namegrid">'+roster.map(n=>
             '<button class="nameopt" data-name="'+esc(n)+'" aria-pressed="'+(n===pickName)+'">'+
-            '<span class="em">'+(profiles[n]||'·')+'</span><span class="nm">'+esc(n)+'</span></button>').join('')+'</div>'
+            '<span class="em">'+avatarHTML(n)+'</span><span class="nm">'+esc(n)+'</span></button>').join('')+'</div>'
         : '<p class="dek" style="margin:8px 0 0">No profiles yet — make the first one.</p>')+
       '<div class="row" style="margin-top:9px">'+
         '<button class="btn quiet tiny" id="newProfBtn">'+(makingProfile?'Cancel':'+ New profile')+'</button>'+
@@ -610,14 +610,20 @@ function paintLobby(){
         ? '<div class="lobby" style="margin-top:10px">'+
             '<label>Profile name<input id="profName" maxlength="14" placeholder="Your name" value="'+esc(newProfName)+'"></label>'+
           '</div>'+
-          '<h4 class="pickhead">Pick an emoji</h4>'+
+          '<h4 class="pickhead">Pick an emoji, or use a photo</h4>'+
           '<div class="emgrid">'+EMOJI.map(e=>
             '<button class="emopt" data-emoji="'+e+'" aria-pressed="'+(e===pickEmoji)+'">'+e+'</button>').join('')+'</div>'+
+          '<div class="row" style="margin-top:9px">'+
+            '<button class="btn quiet tiny" id="photoBtn">'+(isPhoto(pickEmoji)?'Change photo':'Use a photo')+'</button>'+
+            (isPhoto(pickEmoji)?'<img class="pfp lg" src="'+pickEmoji+'" alt="your picture">':'')+'</div>'+
           '<div class="row" style="margin-top:12px"><button class="btn solid" id="makeProfBtn">Create profile</button></div>'
         : (pickName
-            ? '<h4 class="pickhead">Your emoji</h4>'+
+            ? '<h4 class="pickhead">Your emoji, or a photo</h4>'+
               '<div class="emgrid">'+EMOJI.map(e=>
-                '<button class="emopt" data-emoji="'+e+'" aria-pressed="'+(e===pickEmoji)+'">'+e+'</button>').join('')+'</div>'
+                '<button class="emopt" data-emoji="'+e+'" aria-pressed="'+(e===pickEmoji)+'">'+e+'</button>').join('')+'</div>'+
+              '<div class="row" style="margin-top:9px">'+
+                '<button class="btn quiet tiny" id="photoBtn">'+(isPhoto(profiles[pickName])?'Change photo':'Use a photo')+'</button>'+
+                (isPhoto(profiles[pickName])?'<img class="pfp lg" src="'+profiles[pickName]+'" alt="your picture">':'')+'</div>'
             : ''))+
       (code?'<div class="lobby" style="margin-top:14px">'+
         '<label>Table code<input id="code" value="'+code+'" maxlength="4"></label></div>':'')+
@@ -657,6 +663,12 @@ function paintLobby(){
   };
   const pf=el('profName');
   if(pf) pf.oninput=()=>{ newProfName=pf.value; };
+  const ph=el('photoBtn');
+  if(ph) ph.onclick=()=>openCropper(data=>{
+    pickEmoji=data;
+    if(!makingProfile && pickName){ send({type:'profile', name:pickName, avatar:data}); store.emoji=data; }
+    paintLobby();
+  });
   ov.querySelectorAll('[data-kitty]').forEach(b=>b.onclick=()=>
     send({type:'settings', settings:{kitty:Number(b.dataset.kitty)}}));
   const cp=el('copyLink'); if(cp) cp.onclick=copyInvite;
@@ -755,13 +767,104 @@ function renderChat(){
     const mine=c.seat===V.mySeat;
     const fresh=now-c.at<9000;
     return '<div class="bubble'+(mine?' mine':'')+(fresh?' fresh':'')+'">'+
-      '<span class="who">'+(profiles[c.name]||'')+' '+esc(c.name)+'</span>'+
+      '<span class="who">'+avatarHTML(c.name,'sm')+' '+esc(c.name)+'</span>'+
       '<span class="said">'+esc(c.text)+'</span></div>';
   }).join('');
   wrap.scrollTop=wrap.scrollHeight;
 }
 const esc=t=>String(t).replace(/[&<>"']/g,ch=>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+/* ---------------- profile photo ----------------
+   Pick a picture, pan and zoom it inside a square, and keep a small crop.
+   On a phone the file input opens the camera roll; Safari hands back a JPEG
+   even when the original is HEIC. */
+const isPhoto=v=>typeof v==='string' && v.startsWith('data:image');
+function avatarHTML(name, cls){
+  const a=profiles[name];
+  if(isPhoto(a)) return '<img class="pfp'+(cls?' '+cls:'')+'" src="'+a+'" alt="">';
+  return a || (name||'?').slice(0,1).toUpperCase();
+}
+
+function openCropper(onDone){
+  const V=236;                       // preview size
+  let img=null, zoom=1, base=1, ox=0, oy=0, drag=null, pinch=null;
+
+  paint('crop','<div class="panel" style="max-width:380px"><h3>Your picture</h3>'+
+    '<p class="dek">Pick a photo, then drag to move it and pinch or use the slider to zoom.</p>'+
+    '<div class="cropwrap"><canvas id="cropc" width="'+V+'" height="'+V+'"></canvas>'+
+      '<div class="cropmask"></div></div>'+
+    '<input type="range" id="cropzoom" min="100" max="400" value="100" class="zoomer" aria-label="Zoom">'+
+    '<div class="row" style="margin-top:12px">'+
+      '<label class="btn" for="pfile">Choose a photo</label>'+
+      '<input type="file" id="pfile" accept="image/*" hidden>'+
+      '<button class="btn solid" id="cropSave" disabled>Use this</button>'+
+      '<button class="btn quiet" id="cropCancel">Cancel</button>'+
+    '</div></div>');
+
+  const cv=el('cropc'), cx=cv.getContext('2d');
+  const clamp=()=>{
+    const w=img.width*base*zoom, h=img.height*base*zoom;
+    ox=Math.min(0, Math.max(V-w, ox));
+    oy=Math.min(0, Math.max(V-h, oy));
+  };
+  const draw=()=>{
+    cx.clearRect(0,0,V,V);
+    if(!img){ return; }
+    cx.imageSmoothingQuality='high';
+    cx.drawImage(img, ox, oy, img.width*base*zoom, img.height*base*zoom);
+  };
+  const fit=()=>{
+    base=Math.max(V/img.width, V/img.height);
+    zoom=1; ox=(V-img.width*base)/2; oy=(V-img.height*base)/2;
+    el('cropzoom').value=100; draw();
+  };
+
+  el('pfile').onchange=e=>{
+    const f=e.target.files && e.target.files[0];
+    if(!f) return;
+    const url=URL.createObjectURL(f);
+    const im=new Image();
+    im.onload=()=>{ img=im; fit(); el('cropSave').disabled=false; URL.revokeObjectURL(url); };
+    im.onerror=()=>{ flashCrop('That picture would not open. Try a JPEG or PNG.'); URL.revokeObjectURL(url); };
+    im.src=url;
+  };
+  el('cropzoom').oninput=e=>{
+    if(!img) return;
+    const z=Number(e.target.value)/100, cxp=V/2, cyp=V/2;
+    ox=cxp-(cxp-ox)*(z/zoom); oy=cyp-(cyp-oy)*(z/zoom);
+    zoom=z; clamp(); draw();
+  };
+  const pt=e=>{ const r=cv.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; };
+  cv.onpointerdown=e=>{ if(!img) return; cv.setPointerCapture(e.pointerId); drag=pt(e); };
+  cv.onpointermove=e=>{ if(!drag||!img) return; const p=pt(e); ox+=p.x-drag.x; oy+=p.y-drag.y; drag=p; clamp(); draw(); };
+  cv.onpointerup=()=>{ drag=null; };
+  cv.onpointercancel=()=>{ drag=null; };
+  cv.onwheel=e=>{
+    if(!img) return; e.preventDefault();
+    const z=Math.min(4, Math.max(1, zoom*(e.deltaY<0?1.08:0.93)));
+    const p=pt(e); ox=p.x-(p.x-ox)*(z/zoom); oy=p.y-(p.y-oy)*(z/zoom);
+    zoom=z; el('cropzoom').value=Math.round(z*100); clamp(); draw();
+  };
+
+  el('cropCancel').onclick=()=>{ closeOv(); paintLobby(); };
+  el('cropSave').onclick=()=>{
+    if(!img) return;
+    const S=176, out=document.createElement('canvas');
+    out.width=S; out.height=S;
+    const o=out.getContext('2d');
+    o.imageSmoothingQuality='high';
+    const k=S/V;
+    o.drawImage(img, ox*k, oy*k, img.width*base*zoom*k, img.height*base*zoom*k);
+    let data=out.toDataURL('image/jpeg', 0.82);
+    if(data.length>150000) data=out.toDataURL('image/jpeg', 0.6);
+    closeOv(); onDone(data);
+  };
+}
+function flashCrop(msg){
+  const p=ov.querySelector('.panel .dek');
+  if(p){ p.textContent=msg; p.style.color='var(--rouge-bright)'; }
+}
 
 /* ---------------- lifetime record ---------------- */
 let statsMode='pvp';
@@ -782,7 +885,7 @@ function paintStats(){
     const pct=r.games?Math.round(100*r.wins/r.games)+'%':'—';
     const bph=r.hands?(r.books/r.hands).toFixed(2):'—';
     const madepct=r.bids?Math.round(100*r.made/r.bids)+'%':'—';
-    return '<tr><td class="who">'+(profiles[n]||'')+' '+esc(n)+'</td>'+
+    return '<tr><td class="who">'+avatarHTML(n,'sm')+' '+esc(n)+'</td>'+
       '<td>'+r.wins+'/'+r.games+'</td><td>'+pct+'</td>'+
       '<td>'+r.books+'</td><td>'+bph+'</td>'+
       '<td>'+r.bids+'</td><td>'+madepct+'</td>'+
