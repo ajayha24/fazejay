@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const R = require('./game');
 const SOLVER = require('./solver');
+const store = require('./store');
 
 const PORT = process.env.PORT || 3000;
 const PUB  = path.join(__dirname, 'public');
@@ -48,11 +49,7 @@ const findName = want =>
 /* An emoji each, kept by name and written to disk so a pick outlives a
    restart. Each browser also remembers its own and offers it again on join,
    so a choice comes back even if the file is lost. */
-const PROFILES_FILE = path.join(__dirname, 'profiles.json');
 let profiles = {};
-try { profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, 'utf8')); } catch {}
-for(const k of Object.keys(profiles))
-  if(typeof profiles[k] === 'string') profiles[k] = {avatar: profiles[k]};
 
 /* Whoever runs the table holds this. It clears a forgotten password so the
    player can set a new one themselves — it never reveals the old one, because
@@ -94,9 +91,7 @@ const avatarOf = name => (profiles[name] && profiles[name].avatar) || '🙂';
 const needsPassword = name => !!(profiles[name] && profiles[name].hash);
 /* Lifetime record, by name. Same idea as the emoji: kept on disk so it
    outlives a restart. */
-const STATS_FILE = path.join(__dirname, 'stats.json');
 let stats = {};
-try { stats = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')); } catch {}
 const blank = () => ({games:0, wins:0, hands:0, books:0, points:0, bids:0, made:0, set:0});
 /* Two records per player: hands against a full table of people, and hands with
    at least one bot in a seat. A hand only counts as against people if all four
@@ -108,13 +103,7 @@ function rec(name, mode){
   s[mode] = s[mode] || blank();
   return s[mode];
 }
-let statsSaveTimer = null;
-function saveStats(){
-  clearTimeout(statsSaveTimer);
-  statsSaveTimer = setTimeout(() => {
-    fs.writeFile(STATS_FILE, JSON.stringify(stats), e => { if(e) console.error('[stats]', e.message); });
-  }, 600);
-}
+const saveStats = () => store.save('stats', stats, 600);
 /* Only real players have a record — bots filling empty seats do not. */
 const humanAt = (room, s) => (room.seats[s] && !room.seats[s].bot) ? room.seats[s].name : null;
 const sendStats = ws => send(ws, {type:'stats', map:stats});
@@ -136,13 +125,7 @@ function broadcastProfiles(origin){
   }
 }
 
-let profileSaveTimer = null;
-function saveProfiles(){
-  clearTimeout(profileSaveTimer);
-  profileSaveTimer = setTimeout(() => {
-    fs.writeFile(PROFILES_FILE, JSON.stringify(profiles), e => { if(e) console.error('[profiles]', e.message); });
-  }, 400);
-}
+const saveProfiles = () => store.save('profiles', profiles, 400);
 const sendProfiles = ws => send(ws, {type:'profiles', roster:roster(), canReset: !!ADMIN_KEY,
   map: Object.fromEntries(roster().map(n => [n, avatarOf(n)])),
   locked: roster().filter(needsPassword)});
@@ -963,4 +946,10 @@ setInterval(() => {
   }
 }, 2500);
 
-server.listen(PORT, () => console.log('45s table running on http://localhost:'+PORT));
+store.init().then(data => {
+  profiles = data.profiles || {};
+  stats = data.stats || {};
+  for(const k of Object.keys(profiles))
+    if(typeof profiles[k] === 'string') profiles[k] = {avatar: profiles[k]};   // older entries
+  server.listen(PORT, () => console.log('45s table running on http://localhost:'+PORT));
+});

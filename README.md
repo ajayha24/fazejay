@@ -47,6 +47,26 @@ no account needed. Free instances sleep after ~15 minutes idle and take about
 Fly.io and Railway work the same way: Node, `npm install`, `npm start`, one
 web port from `process.env.PORT`.
 
+## Keeping profiles and stats
+
+By default they sit in `profiles.json` and `stats.json` next to the server,
+which is fine locally. On a host that wipes its disk between deploys — Render's
+free tier does — set `DATABASE_URL` to a Postgres connection string and they
+move into the database instead.
+
+Any free Postgres works. Neon (https://neon.tech) and Supabase both give one
+that does not expire:
+
+1. Make a project and copy its connection string (it looks like
+   `postgresql://user:password@host/dbname?sslmode=require`).
+2. On Render: the service's **Environment** tab, add `DATABASE_URL` with that
+   value, and save.
+
+The server creates its own table on first run and carries anything already in
+the JSON files into the database, once. After that the database is the truth
+and a leftover file is ignored. If the database cannot be reached the game
+still runs on files and says so in the logs.
+
 ## Forgotten passwords
 
 Each profile sets a password when it is made. Only a salted scrypt hash is
