@@ -886,15 +886,46 @@ wss.on('connection', ws => {
         return push(room);
       }
       case 'sit': {
-        // Seats can be swapped freely until the first hand is dealt.
-        if(room.G || seat===null) return;
+        // Seats move freely in the lobby — including a spectator taking one,
+        // which is how you fix the teams you were dealt by arrival order.
+        if(room.G) return;
         const to = Number(m.seat);
-        if(!(to>=0 && to<4) || to===seat || room.seats[to]) return;
-        room.seats[to] = room.seats[seat];
-        room.seats[seat] = null;
+        if(!(to>=0 && to<4) || room.seats[to]) return;
+        const side = to%2===0 ? 'Team A' : 'Team B';
+        if(seat === null){
+          if(!ws.watching) return;                       // only a signed-in watcher
+          room.watchers.delete(ws);
+          room.seats[to] = {token: ws.token, name: ws.watching, bot:false,
+                            sockets: new Set([ws]), away:false};
+          log(room, '<b>'+ws.watching+'</b> takes seat '+(to+1)+' ('+side+').');
+          ws.watching = null;
+        } else {
+          if(to === seat) return;
+          room.seats[to] = room.seats[seat];
+          room.seats[seat] = null;
+          log(room, '<b>'+room.seats[to].name+'</b> moves to seat '+(to+1)+' ('+side+').');
+        }
         if(!room.hostToken) room.hostToken = room.seats[to].token;
-        log(room, '<b>'+room.seats[to].name+'</b> moves to seat '+(to+1)+
-                  ' ('+(to%2===0?'Team A':'Team B')+').');
+        return push(room);
+      }
+      case 'spectate': {
+        // Step out so somebody else can take the seat.
+        if(room.G || seat === null) return;
+        const who = room.seats[seat].name;
+        room.seats[seat] = null;
+        ws.watching = who;
+        room.watchers.add(ws);
+        log(room, '<b>'+who+'</b> steps out to watch.');
+        send(ws, {type:'joined', code:room.code, token:ws.token, seat:null, spectating:true});
+        return push(room);
+      }
+      case 'tolobby': {
+        // Back to the lobby after a game, to rearrange seats or settings.
+        if(!host || !room.G) return;
+        if(room.G.phase !== 'gameover' && room.G.phase !== 'handover') return;
+        clearTimeout(room.timer); room.timer = null;
+        room.G = null;
+        log(room, 'Back to the lobby.', 'deal');
         return push(room);
       }
       case 'start':

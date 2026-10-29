@@ -606,7 +606,7 @@ function paintLobby(){
     // Seats alternate round the table, so partners sit across from each other.
     const rows=V.seats.map((p,i)=>{
       const mine=i===V.mySeat;
-      const canSit=p.empty&&V.mySeat!==null&&!mine;
+      const canSit=p.empty&&!mine;
       return '<div class="seatrow'+(mine?' mine':'')+'">'+
         '<span class="tm">'+(i%2===0?'Team A':'Team B')+'</span>'+
         '<span class="nm'+(p.empty?' vacant':'')+'">'+
@@ -622,7 +622,15 @@ function paintLobby(){
       '<div class="codebig">'+V.code+'</div>'+
       '<div class="row" style="justify-content:center;margin-bottom:12px">'+
         '<button class="btn" id="copyLink">Copy invite link</button></div>'+
-      '<div class="seatlist">'+rows+'</div>'+
+      '<div class="seatlist">'+rows+
+        ((V.spectators||[]).length
+          ? '<div class="seatrow watching"><span class="tm">Watching</span>'+
+            '<span class="nm">'+(V.spectators||[]).map(esc).join(', ')+'</span></div>'
+          : '')+
+      '</div>'+
+      (V.mySeat!==null
+        ? '<div class="row" style="margin-top:8px"><button class="btn quiet tiny" id="stepOut">Step out and watch</button></div>'
+        : '<p class="dek" style="margin:8px 0 0;font-size:12.5px">You are watching — take any open seat above to join in.</p>')+
       (host
         ? '<h4 style="margin:16px 0 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600">Kitty</h4>'+
           '<div class="deckrow" id="kittyRow">'+
@@ -748,6 +756,8 @@ function paintLobby(){
   });
   ov.querySelectorAll('[data-kitty]').forEach(b=>b.onclick=()=>
     send({type:'settings', settings:{kitty:Number(b.dataset.kitty)}}));
+  const so=el('stepOut');
+  if(so) so.onclick=()=>send({type:'spectate'});
   const ls=el('lobbyStats');
   if(ls) ls.onclick=()=>{ send({type:'stats'}); paintStats(); };
   const cp=el('copyLink'); if(cp) cp.onclick=copyInvite;
@@ -840,7 +850,9 @@ function showResult(){
     (V.settings.defendersScore?'<div class="resrow"><span class="k">'+label(r.dt)+'</span><span class="v">+'+r.defDelta+'</span></div>':'')+
     '<div class="resrow"><span class="k">Score</span><span class="v">Us '+V.scores[myTeam]+' · Them '+V.scores[1-myTeam]+'</span></div>';
   const action=V.phase==='gameover'
-    ? (V.isHost?'<button class="btn solid" id="again">New game</button>':'<span class="waiting">Waiting for the host…</span>')+
+    ? (V.isHost?'<button class="btn solid" id="again">New game</button>'+
+                '<button class="btn quiet" id="toLobby">Back to the lobby</button>'
+              :'<span class="waiting">Waiting for the host…</span>')+
       '<button class="btn quiet" id="statsBtn">Lifetime record</button>'
     : '<button class="btn solid" id="next">Shuffle &amp; deal · '+nameOf((V.dealer+1)%4)+' deals</button>';
   const canReview = V.mySeat!==null;
@@ -852,6 +864,7 @@ function showResult(){
   const sb=el('statsBtn'); if(sb) sb.onclick=()=>{ send({type:'stats'}); paintStats(); };
   const n=el('next'); if(n) n.onclick=()=>{ closeOv(); send({type:'next'}); };
   const a=el('again'); if(a) a.onclick=()=>{ closeOv(); send({type:'newgame'}); };
+  const tl=el('toLobby'); if(tl) tl.onclick=()=>{ closeOv(); send({type:'tolobby'}); };
 }
 
 /* ---------------- table chat ----------------

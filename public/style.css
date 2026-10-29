@@ -810,3 +810,6 @@ table.stats td.none{text-align:center; color:var(--muted); padding:18px 0}
 
 .btn.danger{border-color:var(--rouge); color:var(--rouge-bright); background:rgba(178,59,44,.12)}
 .btn.danger:hover{background:rgba(178,59,44,.24)}
+
+.seatrow.watching{border-style:dashed; opacity:.85}
+.seatrow.watching .nm{color:var(--muted); font-weight:400}
