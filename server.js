@@ -759,6 +759,32 @@ wss.on('connection', ws => {
       return push(r);
     }
 
+    if(m.type==='deleteprofile'){
+      ws.resetTries = (ws.resetTries || 0) + 1;
+      if(ws.resetTries > 5)
+        return send(ws, {type:'error', message:'Too many attempts. Reload and try again.'});
+      if(!ADMIN_KEY)
+        return send(ws, {type:'error', message:'No reset key is set on this server, so profiles cannot be removed here.'});
+      if(!adminOk(m.key))
+        return send(ws, {type:'error', message:'That reset key is not right.'});
+      const nm = findName(m.name);
+      if(!nm) return send(ws, {type:'error', message:'No profile by that name.'});
+      // A held-but-disconnected seat should not block this; only someone
+      // actually connected and playing.
+      for(const r of rooms.values())
+        if(r.seats.some(p => p && p.name === nm && !p.away && p.sockets.size))
+          return send(ws, {type:'error', message:nm+' is at a table right now. Try again once they leave.'});
+      for(const r of rooms.values())
+        for(let i=0;i<4;i++) if(r.seats[i] && r.seats[i].name === nm) r.seats[i] = null;
+      delete profiles[nm];
+      delete stats[nm];
+      saveProfiles(); saveStats();
+      broadcastProfiles(ws);
+      for(const r of rooms.values())
+        for(const p of r.seats) if(p) p.sockets.forEach(sk => sendStats(sk));
+      console.log('[admin] profile removed:', nm);
+      return send(ws, {type:'profilegone', name:nm});
+    }
     if(m.type==='resetpw'){
       ws.resetTries = (ws.resetTries || 0) + 1;
       if(ws.resetTries > 5)

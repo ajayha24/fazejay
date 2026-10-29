@@ -807,3 +807,6 @@ table.stats td.none{text-align:center; color:var(--muted); padding:18px 0}
   .demonote{font-size:12.5px; min-height:52px}
   .demounits .u{width:36px; height:26px; font-size:11px}
 }
+
+.btn.danger{border-color:var(--rouge); color:var(--rouge-bright); background:rgba(178,59,44,.12)}
+.btn.danger:hover{background:rgba(178,59,44,.24)}

@@ -104,6 +104,12 @@ function connect(then){
       myToken=m.token; store.token=m.token; store.lastCode=m.code;
       history.replaceState({}, '', '/t/'+m.code);
     }
+    else if(m.type==='profilegone'){
+      paint('resetok','<div class="panel"><h3>Profile removed</h3>'+
+        '<p class="dek"><b>'+esc(m.name)+'</b> and its record are gone.</p>'+
+        '<div class="row"><button class="btn solid" id="okReset">Done</button></div></div>');
+      el('okReset').onclick=()=>{ closeOv(); paintLobby(); };
+    }
     else if(m.type==='resetdone'){
       paint('resetok','<div class="panel"><h3>Password cleared</h3>'+
         '<p class="dek"><b>'+esc(m.name)+'</b> can now set a new one: pick that profile, '+
@@ -772,12 +778,24 @@ function paintReset(name){
         '</div>'+
         '<div class="row" style="margin-top:14px">'+
           '<button class="btn solid" id="rsGo">Clear the password</button>'+
-          '<button class="btn quiet" id="rsCancel">Back</button></div>'
+          '<button class="btn quiet" id="rsDel">Delete the profile</button>'+
+          '<button class="btn quiet" id="rsCancel">Back</button></div>'+
+        '<p class="dek" style="margin:10px 0 0;font-size:11.5px">Deleting removes the profile and its record for good.</p>'
       : '<p class="dek" style="color:var(--rouge-bright)">This server has no reset key set, so passwords cannot be cleared here yet.</p>'+
         '<div class="row"><button class="btn quiet" id="rsCancel">Back</button></div>')+
     '</div>');
   const go=el('rsGo');
   if(go) go.onclick=()=>send({type:'resetpw', name:el('rsName').value.trim(), key:el('rsKey').value});
+  const del=el('rsDel');
+  if(del) del.onclick=()=>{
+    const nm=el('rsName').value.trim();
+    if(del.dataset.armed!=='1'){
+      del.dataset.armed='1'; del.textContent='Really delete '+nm+'?';
+      del.classList.add('danger');
+      return;
+    }
+    send({type:'deleteprofile', name:nm, key:el('rsKey').value});
+  };
   el('rsCancel').onclick=()=>{ closeOv(); paintLobby(); };
 }
 
