@@ -16,6 +16,7 @@ let makingProfile=false, newProfName='';
 let locked=[];                       // profiles that have a password set
 let pendingPw='';                    // kept only until the join succeeds
 let canReset=false;                  // whether this server has a reset key set
+let storage='files';                 // where profiles and stats are kept
 let chatSeen=0;                      // newest chat id already shown
 let stats={};                        // lifetime record, by name
 
@@ -129,6 +130,7 @@ function connect(then){
     else if(m.type==='stats'){ stats=m.map||{}; if(ovKind==='stats') paintStats(); }
     else if(m.type==='profiles'){
       profiles=m.map||{}; roster=m.roster||[]; locked=m.locked||[]; canReset=!!m.canReset;
+      storage=m.storage||'files';
       if(V) render();
       if(ovKind==='lobby') paintLobby();      // the picker needs the roster
     }
@@ -676,6 +678,10 @@ function paintLobby(){
         '<label>Table code<input id="code" value="'+code+'" maxlength="4"></label></div>':'')+
       '<h4 class="pickhead">Your deck</h4>'+
       deckPicker()+
+      (storage==='files'
+        ? '<p class="dek" style="margin:12px 0 0;color:var(--rouge-bright);font-size:12px">'+
+          'Heads up: this server is not saving profiles anywhere permanent, so they will be lost next time it updates.</p>'
+        : '')+
       '<div class="row" style="margin-top:16px">'+
       (code?'<button class="btn solid" id="joinBtn">Join table</button>':'')+
       '<button class="btn'+(code?' quiet':' solid')+'" id="newBtn">Start a new table</button>'+

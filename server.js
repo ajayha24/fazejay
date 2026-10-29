@@ -126,7 +126,8 @@ function broadcastProfiles(origin){
 }
 
 const saveProfiles = () => store.save('profiles', profiles, 400);
-const sendProfiles = ws => send(ws, {type:'profiles', roster:roster(), canReset: !!ADMIN_KEY,
+let storage = 'files';
+const sendProfiles = ws => send(ws, {type:'profiles', roster:roster(), canReset: !!ADMIN_KEY, storage,
   map: Object.fromEntries(roster().map(n => [n, avatarOf(n)])),
   locked: roster().filter(needsPassword)});
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -965,5 +966,6 @@ store.init().then(data => {
   stats = data.stats || {};
   for(const k of Object.keys(profiles))
     if(typeof profiles[k] === 'string') profiles[k] = {avatar: profiles[k]};   // older entries
+  storage = store.backend();
   server.listen(PORT, () => console.log('45s table running on http://localhost:'+PORT));
 });

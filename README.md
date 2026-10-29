@@ -49,23 +49,35 @@ web port from `process.env.PORT`.
 
 ## Keeping profiles and stats
 
-By default they sit in `profiles.json` and `stats.json` next to the server,
-which is fine locally. On a host that wipes its disk between deploys — Render's
-free tier does — set `DATABASE_URL` to a Postgres connection string and they
-move into the database instead.
+By default they sit in `profiles.json` and `stats.json` next to the server.
+That is fine locally, but a host that clears its disk between deploys — Render's
+free tier does — loses them on every update. The lobby says so when that is the
+case.
 
-Any free Postgres works. Neon (https://neon.tech) and Supabase both give one
-that does not expire:
+### A private gist (no extra service, nothing expires)
 
-1. Make a project and copy its connection string (it looks like
-   `postgresql://user:password@host/dbname?sslmode=require`).
-2. On Render: the service's **Environment** tab, add `DATABASE_URL` with that
-   value, and save.
+Uses the GitHub account you already have.
 
-The server creates its own table on first run and carries anything already in
-the JSON files into the database, once. After that the database is the truth
-and a leftover file is ignored. If the database cannot be reached the game
-still runs on files and says so in the logs.
+1. Go to https://github.com/settings/tokens → **Generate new token (classic)**.
+2. Tick only the **gist** scope. Nothing else is needed, and this token cannot
+   touch your repositories.
+3. Copy the token.
+4. On Render: the service's **Environment** tab → add `GITHUB_TOKEN` with that
+   value → save.
+
+On first run the server makes one private gist called
+"kitchen-table-45s data — do not delete" and keeps both files in it. It finds
+that gist by name afterwards, so there is no id to configure. Don't rename or
+delete it.
+
+### Or Postgres
+
+Set `DATABASE_URL` to a connection string instead. Render's own free Postgres
+expires after 30 days; Neon (https://neon.tech) and Supabase do not.
+
+Either way, whatever is already in the JSON files is carried across once on the
+first run, and after that the remote copy is the truth. If the backend cannot
+be reached the game still runs on files and logs why.
 
 ## Forgotten passwords
 
