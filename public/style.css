@@ -723,10 +723,10 @@ table.stats td.none{text-align:center; color:var(--muted); padding:18px 0}
 
 /* ---------- spectating ---------- */
 .specnote{
-  position:absolute; top:58px; left:50%; transform:translateX(-50%);
+  align-self:center;
   background:rgba(8,24,22,.85); border:1px solid var(--brass-dim); color:var(--text);
-  border-radius:999px; padding:5px 15px; font-size:12.5px; z-index:7;
-  pointer-events:none; white-space:nowrap; max-width:92%; overflow:hidden; text-overflow:ellipsis;
+  border-radius:999px; padding:5px 15px; font-size:12.5px;
+  pointer-events:none; max-width:92%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .specnote b{color:var(--brass)}
 .backs.open{display:flex; gap:3px; flex-wrap:nowrap}
@@ -760,7 +760,7 @@ table.stats td.none{text-align:center; color:var(--muted); padding:18px 0}
   .review{max-height:34vh}
   .cropwrap,.zoomer{width:200px}
   .cropwrap canvas{width:200px;height:200px}
-  .specnote{top:auto;bottom:96px;font-size:11.5px}
+  .specnote{font-size:11.5px}
 }
 /* very short screens: let the panel scroll inside itself so buttons stay put */
 @media (max-height:620px){

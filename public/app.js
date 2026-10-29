@@ -222,8 +222,11 @@ function render(){
   let spec=el('specnote');
   const names=(V.spectators||[]);
   if(names.length||V.spectating){
-    if(!spec){ spec=document.createElement('div'); spec.id='specnote'; spec.className='specnote';
-      document.querySelector('.board').appendChild(spec); }
+    if(!spec){
+      spec=document.createElement('div'); spec.id='specnote'; spec.className='specnote';
+      const felt=document.querySelector('.felt');
+      felt.parentNode.insertBefore(spec, felt);     // in flow, so it cannot sit on a seat
+    }
     spec.innerHTML=(V.spectating?'<b>You are spectating</b> — every hand is face up. ':'')+
       (names.length? names.map(esc).join(', ')+(names.length>1?' are':' is')+' spectating.' : '');
     spec.hidden=false;
@@ -623,14 +626,17 @@ function paintLobby(){
       '<div class="row" style="justify-content:center;margin-bottom:12px">'+
         '<button class="btn" id="copyLink">Copy invite link</button></div>'+
       '<div class="seatlist">'+rows+
-        ((V.spectators||[]).length
-          ? '<div class="seatrow watching"><span class="tm">Watching</span>'+
-            '<span class="nm">'+(V.spectators||[]).map(esc).join(', ')+'</span></div>'
-          : '')+
+        (V.spectators||[]).map(n=>
+          '<div class="seatrow watching"><span class="tm">Watching</span>'+
+          '<span class="nm">'+avatarHTML(n,'sm')+' '+esc(n)+'</span></div>').join('')+
+        '<div class="seatrow watching open"><span class="tm">Watching</span>'+
+          '<span class="nm vacant">open — any number can watch</span>'+
+          (V.mySeat!==null?'<button class="btn tiny" id="stepOut2">Watch instead</button>':'')+
+        '</div>'+
       '</div>'+
-      (V.mySeat!==null
-        ? '<div class="row" style="margin-top:8px"><button class="btn quiet tiny" id="stepOut">Step out and watch</button></div>'
-        : '<p class="dek" style="margin:8px 0 0;font-size:12.5px">You are watching — take any open seat above to join in.</p>')+
+      (V.mySeat===null
+        ? '<p class="dek" style="margin:8px 0 0;font-size:12.5px">You are watching — every hand is face up, and you can take any open seat above.</p>'
+        : '')+
       (host
         ? '<h4 style="margin:16px 0 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600">Kitty</h4>'+
           '<div class="deckrow" id="kittyRow">'+
@@ -756,7 +762,7 @@ function paintLobby(){
   });
   ov.querySelectorAll('[data-kitty]').forEach(b=>b.onclick=()=>
     send({type:'settings', settings:{kitty:Number(b.dataset.kitty)}}));
-  const so=el('stepOut');
+  const so=el('stepOut2');
   if(so) so.onclick=()=>send({type:'spectate'});
   const ls=el('lobbyStats');
   if(ls) ls.onclick=()=>{ send({type:'stats'}); paintStats(); };
