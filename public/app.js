@@ -637,7 +637,9 @@ function paintLobby(){
       (myTeam?'<p class="waiting" style="margin:10px 0 0">You’re on <b style="color:var(--sage)">'+myTeam+'</b></p>':'')+
       '<div class="row" style="margin-top:14px">'+
       (host?'<button class="btn solid" id="startBtn">Deal the first hand</button>'
-           :'<span class="waiting">Waiting for the host to deal…</span>')+'</div></div>';
+           :'<span class="waiting">Waiting for the host to deal…</span>')+
+      '<button class="btn quiet" id="lobbyStats">Lifetime record</button>'+
+      '</div></div>';
   } else {
     body='<div class="panel"><h3>Kitchen Table 45s</h3>'+
       '<p class="dek">Four players, two teams, six units a hand. Start a table and send the link to three friends — empty seats are covered by bots.</p>'+
@@ -665,20 +667,22 @@ function paintLobby(){
           '</div>'+
           '<div class="row" style="margin-top:12px"><button class="btn solid" id="makeProfBtn">Create profile</button></div>'
         : (pickName
-            ? '<h4 class="pickhead">Your emoji, or a photo</h4>'+
+            ? (pickName==='Guest' ? '' : '<h4 class="pickhead">Your emoji, or a photo</h4>'+
               '<div class="emgrid">'+EMOJI.map(e=>
                 '<button class="emopt" data-emoji="'+e+'" aria-pressed="'+(e===pickEmoji)+'">'+e+'</button>').join('')+'</div>'+
               '<div class="row" style="margin-top:9px">'+
                 '<button class="btn quiet tiny" id="photoBtn">'+(isPhoto(profiles[pickName])?'Change photo':'Use a photo')+'</button>'+
-                (isPhoto(profiles[pickName])?'<img class="pfp lg" src="'+profiles[pickName]+'" alt="your picture">':'')+'</div>'
+                (isPhoto(profiles[pickName])?'<img class="pfp lg" src="'+profiles[pickName]+'" alt="your picture">':'')+'</div>')
             : ''))+
       (pickName&&!makingProfile
-        ? '<div class="lobby" style="margin-top:12px">'+
-            '<label>Password<input id="joinPw" type="password" maxlength="40" placeholder="'+
-            (locked.includes(pickName)?'Your password':'Set a password for this profile')+'"></label></div>'+
-          (locked.includes(pickName)
-            ? '<div class="row" style="margin-top:7px"><button class="btn quiet tiny" id="forgotBtn">Forgot it?</button></div>'
-            : '')
+        ? (pickName==='Guest'
+            ? '<p class="dek" style="margin:12px 0 0;font-size:12.5px">No password needed. Nothing a guest does is kept — hands and books are not recorded.</p>'
+            : '<div class="lobby" style="margin-top:12px">'+
+              '<label>Password<input id="joinPw" type="password" maxlength="40" placeholder="'+
+              (locked.includes(pickName)?'Your password':'Set a password for this profile')+'"></label></div>'+
+              (locked.includes(pickName)
+                ? '<div class="row" style="margin-top:7px"><button class="btn quiet tiny" id="forgotBtn">Forgot it?</button></div>'
+                : ''))
         : '')+
       (code?'<div class="lobby" style="margin-top:12px">'+
         '<label>Table code<input id="code" value="'+code+'" maxlength="4"></label></div>':'')+
@@ -691,6 +695,7 @@ function paintLobby(){
       '<div class="row" style="margin-top:16px">'+
       (code?'<button class="btn solid" id="joinBtn">Join table</button>':'')+
       '<button class="btn'+(code?' quiet':' solid')+'" id="newBtn">Start a new table</button>'+
+      '<button class="btn quiet" id="lobbyStats">Lifetime record</button>'+
       '</div></div>';
   }
   paint('lobby', body);
@@ -743,11 +748,14 @@ function paintLobby(){
   });
   ov.querySelectorAll('[data-kitty]').forEach(b=>b.onclick=()=>
     send({type:'settings', settings:{kitty:Number(b.dataset.kitty)}}));
+  const ls=el('lobbyStats');
+  if(ls) ls.onclick=()=>{ send({type:'stats'}); paintStats(); };
   const cp=el('copyLink'); if(cp) cp.onclick=copyInvite;
   const sb=el('startBtn'); if(sb) sb.onclick=()=>send({type:'start'});
   ov.querySelectorAll('[data-sit]').forEach(b=>b.onclick=()=>send({type:'sit', seat:+b.dataset.sit}));
   const identify=()=>{
     if(!pickName){ flashPick('Pick a profile first, or make one.'); return false; }
+    if(pickName==='Guest'){ store.name=pickName; pendingPw=''; return true; }
     const f=el('joinPw');
     const pw=f ? f.value : (pendingPw||'');
     if(!pw){ flashPick(locked.includes(pickName)?'Enter the password for '+pickName+'.'
@@ -1101,7 +1109,7 @@ function paintStats(){
     '<tbody>'+rows+'</tbody></table></div>'+
     '<div class="row" style="margin-top:16px"><button class="btn quiet" id="closeStats">Close</button></div></div>');
   ov.querySelectorAll('[data-smode]').forEach(b=>b.onclick=()=>{ statsMode=b.dataset.smode; paintStats(); });
-  el('closeStats').onclick=closeOv;
+  el('closeStats').onclick=()=>{ closeOv(); if(!V || V.phase==='lobby') paintLobby(); };
 }
 
 /* ---------------- post-hand review ---------------- */

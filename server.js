@@ -42,9 +42,21 @@ let chatId = 0;
    and it joins the list everyone picks from afterwards. A profile is stored as
    {avatar, salt, hash}; older string-only entries are upgraded on read. */
 const NAME_OK = /^[A-Za-z0-9][A-Za-z0-9 '\-]{0,13}$/;
-const roster = () => Object.keys(profiles);
-const findName = want =>
-  roster().find(n => n.toLowerCase() === String(want||'').trim().toLowerCase());
+
+/* A standing profile anyone can use: no password, and nothing it does is
+   recorded. Several people can be guests at one table — they get numbered. */
+const GUEST = 'Guest';
+const isGuest = n => n === GUEST || /^Guest \d+$/.test(String(n||''));
+
+const roster = () => [GUEST, ...Object.keys(profiles).filter(n => !isGuest(n))];
+const findName = want => {
+  const w = String(want||'').trim();
+  if(isGuest(w) || w.toLowerCase() === 'guest') return GUEST;
+  return Object.keys(profiles).find(n => n.toLowerCase() === w.toLowerCase());
+};
+/* Guests are real people for working out who you played against, but they have
+   no record of their own to write to. */
+const recorded = name => !!profiles[name];
 
 /* An emoji each, kept by name and written to disk so a pick outlives a
    restart. Each browser also remembers its own and offers it again on join,
@@ -71,7 +83,7 @@ function setPassword(entry, pw){
   entry.hash = hashPw(pw, entry.salt);
 }
 function checkPassword(entry, pw){
-  if(!entry || !entry.hash) return true;              // never had one set
+  if(!entry || !entry.hash) return true;              // a guest, or never set
   if(typeof pw !== 'string' || !pw) return false;
   const a = Buffer.from(hashPw(pw, entry.salt), 'hex');
   const b = Buffer.from(entry.hash, 'hex');
@@ -80,6 +92,7 @@ function checkPassword(entry, pw){
 /* A profile with no password set — new, or just reset — takes the next one
    offered, so the player chooses it themselves and nobody else sees it. */
 function claimIfOpen(name, pw){
+  if(isGuest(name)) return true;
   const e = profiles[name];
   if(!e || e.hash) return false;
   if(typeof pw !== 'string' || pw.length < 4) return false;
@@ -87,8 +100,8 @@ function claimIfOpen(name, pw){
   saveProfiles();
   return true;
 }
-const avatarOf = name => (profiles[name] && profiles[name].avatar) || '🙂';
-const needsPassword = name => !!(profiles[name] && profiles[name].hash);
+const avatarOf = name => isGuest(name) ? '👤' : ((profiles[name] && profiles[name].avatar) || '🙂');
+const needsPassword = name => !isGuest(name) && !!(profiles[name] && profiles[name].hash);
 /* Lifetime record, by name. Same idea as the emoji: kept on disk so it
    outlives a restart. */
 let stats = {};
@@ -106,6 +119,8 @@ function rec(name, mode){
 const saveStats = () => store.save('stats', stats, 600);
 /* Only real players have a record — bots filling empty seats do not. */
 const humanAt = (room, s) => (room.seats[s] && !room.seats[s].bot) ? room.seats[s].name : null;
+/* Who gets credited: a seated person who is not a guest. */
+const scorerAt = (room, s) => { const n = humanAt(room, s); return (n && recorded(n)) ? n : null; };
 const sendStats = ws => send(ws, {type:'stats', map:stats});
 
 /* An avatar is either one emoji or a small cropped photo as a data URL. */
@@ -448,7 +463,7 @@ function finishTrick(room){
     G.mode = [0,1,2,3].every(s => humanAt(room, s)) ? 'pvp' : 'bots';
   const w = R.trickWinner(G.trick, G.trump);
   G.units[teamOf(w.seat)]++;
-  const booker = humanAt(room, w.seat);
+  const booker = scorerAt(room, w.seat);
   if(booker){ rec(booker, G.mode||'bots').books++; saveStats(); }
   log(room, '<b>'+nameOf(room,w.seat)+'</b> takes trick '+(G.trickNo+1)+' with '+w.card.r+R.GLYPH[w.card.s]+'.');
   G.trick = []; G.trickNo++;
@@ -477,7 +492,7 @@ function scoreHand(room){
             ' — '+(made?'made it':'set')+'.', 'hi');
 
   for(let s=0;s<4;s++){
-    const nm = humanAt(room, s);
+    const nm = scorerAt(room, s);
     if(!nm) continue;
     const r = rec(nm, G.mode||'bots');
     r.hands++;
@@ -494,7 +509,7 @@ function scoreHand(room){
   if(over >= 0){
     G.winner = over; G.phase = 'gameover';
     for(let p=0;p<4;p++){
-      const nm = humanAt(room, p);
+      const nm = scorerAt(room, p);
       if(!nm) continue;
       const r = rec(nm, G.mode||'bots');
       r.games++;
@@ -701,7 +716,7 @@ wss.on('connection', ws => {
       const host = findName(m.name);
       if(!host)
         return send(ws, {type:'error', message:'Pick a profile first, or make one.'});
-      if(ws.signedIn !== host){
+      if(!isGuest(host) && ws.signedIn !== host){
         if(!profiles[host].hash && !claimIfOpen(host, m.password))
           return send(ws, {type:'error', message:'Set a password of at least 4 characters for '+host+'.'});
         if(!checkPassword(profiles[host], m.password))
@@ -731,26 +746,34 @@ wss.on('connection', ws => {
         const want = findName(m.name);
         if(!want)
           return send(ws, {type:'error', message:'Pick a profile first, or make one.'});
-        if(ws.signedIn !== want){
-          if(!profiles[want].hash && !claimIfOpen(want, m.password))
-            return send(ws, {type:'error', message:'Set a password of at least 4 characters for '+want+'.'});
-          if(!checkPassword(profiles[want], m.password))
-            return send(ws, {type:'error', message:'Wrong password for '+want+'.'});
-          ws.signedIn = want;
+        // Guests need no password and several can sit at once, so they get
+        // numbered; everyone else signs in and holds their name alone.
+        let want2 = want;
+        if(isGuest(want)){
+          let n = 1;
+          while(r.seats.some(p => p && p.name === want2)) want2 = GUEST + ' ' + (++n);
+        } else {
+          if(r.seats.some(p => p && p.name === want))
+            return send(ws, {type:'error', message:want+' is already at this table. Pick another profile.'});
+          if(ws.signedIn !== want){
+            if(!profiles[want].hash && !claimIfOpen(want, m.password))
+              return send(ws, {type:'error', message:'Set a password of at least 4 characters for '+want+'.'});
+            if(!checkPassword(profiles[want], m.password))
+              return send(ws, {type:'error', message:'Wrong password for '+want+'.'});
+            ws.signedIn = want;
+          }
         }
-        if(r.seats.some(p => p && p.name === want))
-          return send(ws, {type:'error', message:want+' is already at this table. Pick another profile.'});
         seat = m.seat!==undefined && m.seat!==null && !r.seats[m.seat] ? Number(m.seat)
              : r.seats.findIndex(p => !p);
         if(seat === -1 || !(seat>=0 && seat<4) || r.seats[seat]){
           // Table is full — watch it instead, under your own name.
-          ws.watching = want;
+          ws.watching = want2;
           r.watchers.add(ws);
-          log(r, '<b>'+want+'</b> is spectating.');
+          log(r, '<b>'+want2+'</b> is spectating.');
           send(ws, {type:'joined', code:r.code, token, seat:null, spectating:true});
           return push(r);
         }
-        r.seats[seat] = {token, name:want, bot:false, sockets:new Set([ws]), away:false};
+        r.seats[seat] = {token, name:want2, bot:false, sockets:new Set([ws]), away:false};
         if(!r.hostToken) r.hostToken = token;
         log(r, '<b>'+r.seats[seat].name+'</b> sits down.');
       }
@@ -769,6 +792,7 @@ wss.on('connection', ws => {
         return send(ws, {type:'error', message:'That reset key is not right.'});
       const nm = findName(m.name);
       if(!nm) return send(ws, {type:'error', message:'No profile by that name.'});
+      if(isGuest(nm)) return send(ws, {type:'error', message:'Guest cannot be removed.'});
       // A held-but-disconnected seat should not block this; only someone
       // actually connected and playing.
       for(const r of rooms.values())
@@ -816,6 +840,8 @@ wss.on('connection', ws => {
     if(m.type==='stats'){ return sendStats(ws); }
     if(m.type==='newprofile'){
         const want = String(m.name||'').trim().replace(/\s+/g,' ');
+        if(isGuest(want) || want.toLowerCase() === 'guest')
+          return send(ws, {type:'error', message:'Guest is always available — no need to make it.'});
         if(!NAME_OK.test(want))
           return send(ws, {type:'error', message:'Names are up to 14 letters, numbers, spaces, apostrophes or hyphens.'});
         if(findName(want))

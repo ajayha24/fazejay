@@ -79,6 +79,13 @@ Either way, whatever is already in the JSON files is carried across once on the
 first run, and after that the remote copy is the truth. If the backend cannot
 be reached the game still runs on files and logs why.
 
+## Guests
+
+`Guest` is always in the list and needs no password. Nothing a guest does is
+recorded — no books, no hands, no games. Several people can be guests at one
+table; they are numbered Guest, Guest 2 and so on. The name is reserved, so it
+cannot be created, reset or deleted.
+
 ## Forgotten passwords
 
 Each profile sets a password when it is made. Only a salted scrypt hash is
