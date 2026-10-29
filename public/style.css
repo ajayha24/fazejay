@@ -600,3 +600,81 @@ html,body{min-height:100%}
 .revline b{color:var(--ivory)}
 .revline b.cr{color:var(--rouge-bright)}
 .revline b.ck{color:var(--ivory)}
+
+/* ---------- table chat ----------
+   Anchored to the bottom-left of the cloth: clear of the hand (centred),
+   the action bar (centred) and the trick well (middle). */
+.chatbox{
+  position:absolute; left:14px; bottom:14px; z-index:6;
+  width:min(260px, 30vw); display:flex; flex-direction:column; gap:7px;
+  pointer-events:none;
+}
+.bubbles{
+  display:flex; flex-direction:column; gap:6px; align-items:flex-start;
+  max-height:30vh; overflow-y:auto; pointer-events:auto;
+  scrollbar-width:thin; scrollbar-color:var(--line) transparent;
+}
+.bubble{
+  background:rgba(8,24,22,.82); border:1px solid var(--line);
+  border-radius:13px 13px 13px 4px; padding:6px 11px; max-width:100%;
+  display:flex; flex-direction:column; gap:1px;
+  box-shadow:0 4px 14px rgba(0,0,0,.35); opacity:.55; transition:opacity .4s;
+}
+.bubble.fresh{opacity:1; border-color:var(--brass-dim)}
+.bubble.mine{
+  background:rgba(127,169,140,.2); border-color:rgba(127,169,140,.45);
+  border-radius:13px 13px 4px 13px; align-self:flex-start;
+}
+.bubble .who{
+  font-size:10.5px; letter-spacing:.07em; text-transform:uppercase;
+  color:var(--brass); font-weight:700;
+}
+.bubble .said{font-size:13.5px; color:var(--text); line-height:1.35; word-break:break-word}
+.chatform{display:flex; gap:6px; pointer-events:auto}
+.chatform input{
+  flex:1; min-width:0; background:rgba(8,24,22,.86); color:var(--ivory);
+  border:1px solid var(--line); border-radius:999px; padding:8px 13px;
+  font-family:inherit; font-size:14px;
+}
+.chatform input:focus{outline:none; border-color:var(--brass-dim)}
+.btn.tiny{padding:6px 12px; font-size:12.5px; border-radius:999px}
+
+/* ---------- lobby pickers ---------- */
+.pickhead{
+  margin:16px 0 0; font-size:12px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--muted); font-weight:600;
+}
+.namegrid{display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin-top:8px}
+.nameopt{
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  background:transparent; border:1px solid var(--line); border-radius:10px;
+  padding:7px 4px; cursor:pointer; min-width:0;
+}
+.nameopt:hover{border-color:var(--brass-dim)}
+.nameopt[aria-pressed="true"]{border-color:var(--brass); background:rgba(207,161,78,.12)}
+.nameopt .em{font-size:17px; line-height:1}
+.nameopt .nm{font-size:12px; color:var(--text); overflow:hidden; text-overflow:ellipsis; max-width:100%}
+.emgrid{display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin-top:8px}
+.emopt{
+  background:transparent; border:1px solid var(--line); border-radius:9px;
+  padding:5px 0; font-size:18px; line-height:1.1; cursor:pointer;
+}
+.emopt:hover{border-color:var(--brass-dim)}
+.emopt[aria-pressed="true"]{border-color:var(--brass); background:rgba(207,161,78,.14)}
+.picknote{color:var(--rouge-bright); font-size:13px; margin:12px 0 0}
+.seatrow .btn.tiny{margin-left:auto}
+
+/* ---------- the house dealer ---------- */
+.dealerbox{display:flex; align-items:center; gap:10px; margin:4px 0 2px}
+.dealerpic{
+  width:52px; height:52px; border-radius:50%; object-fit:cover;
+  border:2px solid var(--brass); box-shadow:0 4px 14px rgba(0,0,0,.45);
+}
+.avatar{font-size:15px}
+
+@media (max-width:760px){
+  .chatbox{position:static; width:auto; margin-top:10px}
+  .bubbles{max-height:120px}
+  .namegrid{grid-template-columns:repeat(3,1fr)}
+  .emgrid{grid-template-columns:repeat(6,1fr)}
+}

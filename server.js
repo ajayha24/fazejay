@@ -12,7 +12,9 @@ const PUB  = path.join(__dirname, 'public');
 
 /* ---------------- static file server ---------------- */
 const TYPES = {'.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8',
-               '.css':'text/css; charset=utf-8', '.ico':'image/x-icon'};
+               '.css':'text/css; charset=utf-8', '.ico':'image/x-icon',
+               '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg',
+               '.webp':'image/webp', '.svg':'image/svg+xml'};
 const server = http.createServer((req,res) => {
   const url = (req.url||'/').split('?')[0];
   let file = url === '/' ? 'index.html' : path.normalize(url).replace(/^(\.\.[/\\])+/,'').slice(1);
@@ -33,6 +35,26 @@ const server = http.createServer((req,res) => {
 
 /* ---------------- rooms ---------------- */
 const rooms = new Map();
+let chatId = 0;
+
+/* Who plays at this table. Everyone picks a name from the list rather than
+   typing one, so seats, profile pictures and chat all line up. */
+const ROSTER = ['Ajay','Izak','Tim','Johanna','Kate','Emma','Meghan','Jerry','Ryan','Nia','Andrew','Evan'];
+
+/* An emoji each, kept by name and written to disk so a pick outlives a
+   restart. Each browser also remembers its own and offers it again on join,
+   so a choice comes back even if the file is lost. */
+const PROFILES_FILE = path.join(__dirname, 'profiles.json');
+let profiles = {};
+try { profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, 'utf8')); } catch {}
+let profileSaveTimer = null;
+function saveProfiles(){
+  clearTimeout(profileSaveTimer);
+  profileSaveTimer = setTimeout(() => {
+    fs.writeFile(PROFILES_FILE, JSON.stringify(profiles), e => { if(e) console.error('[profiles]', e.message); });
+  }, 400);
+}
+const sendProfiles = ws => send(ws, {type:'profiles', roster:ROSTER, map:profiles});
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function newCode(){
   let c;
@@ -53,6 +75,7 @@ function createRoom(){
     settings: {...DEFAULTS},
     G: null,
     log: [],
+    chat: [],
     timer: null,
     touched: Date.now()
   };
@@ -477,7 +500,8 @@ function viewFor(room, mySeat){
       away: p ? p.away : false,
       empty: !p
     })),
-    log: room.log.slice(0,40)
+    log: room.log.slice(0,40),
+    chat: room.chat.slice(-12)
   };
   if(!G){ base.phase = 'lobby'; return base; }
   return Object.assign(base, {
@@ -547,6 +571,7 @@ function send(ws, obj){ if(ws.readyState===1) ws.send(JSON.stringify(obj)); }
 
 wss.on('connection', ws => {
   ws.room = null; ws.token = null;
+  sendProfiles(ws);              // the roster, before anyone picks a name
 
   ws.on('message', raw => {
     let m; try { m = JSON.parse(raw); } catch { return; }
@@ -556,9 +581,13 @@ wss.on('connection', ws => {
       const r = createRoom();
       r.watchers = new Set();
       const token = m.token || crypto.randomUUID();
-      r.seats[0] = {token, name:(m.name||'Player').slice(0,14), bot:false, sockets:new Set([ws]), away:false};
+      const host = String(m.name||'');
+      if(!ROSTER.includes(host))
+        return send(ws, {type:'error', message:'Pick who you are from the list first.'});
+      r.seats[0] = {token, name:host, bot:false, sockets:new Set([ws]), away:false};
       r.hostToken = token;
       ws.room = r; ws.token = token;
+      sendProfiles(ws);
       send(ws, {type:'joined', code:r.code, token, seat:0});
       log(r, '<b>'+r.seats[0].name+'</b> opened the table.');
       return push(r);
@@ -575,14 +604,39 @@ wss.on('connection', ws => {
         r.seats[seat].sockets.add(ws);
         r.seats[seat].away = false;
       } else {
-        seat = r.seats.findIndex(p => !p);
-        if(seat === -1){ r.watchers.add(ws); send(ws, {type:'joined', code:r.code, token, seat:null}); return push(r); }
-        r.seats[seat] = {token, name:(m.name||'Player').slice(0,14), bot:false, sockets:new Set([ws]), away:false};
+        const want = String(m.name||'');
+        if(!ROSTER.includes(want))
+          return send(ws, {type:'error', message:'Pick who you are from the list first.'});
+        if(r.seats.some(p => p && p.name === want))
+          return send(ws, {type:'error', message:want+' is already at this table. Pick someone else.'});
+        seat = m.seat!==undefined && m.seat!==null && !r.seats[m.seat] ? Number(m.seat)
+             : r.seats.findIndex(p => !p);
+        if(seat === -1 || !(seat>=0 && seat<4) || r.seats[seat]){
+          r.watchers.add(ws); send(ws, {type:'joined', code:r.code, token, seat:null}); return push(r);
+        }
+        r.seats[seat] = {token, name:want, bot:false, sockets:new Set([ws]), away:false};
         if(!r.hostToken) r.hostToken = token;
         log(r, '<b>'+r.seats[seat].name+'</b> sits down.');
       }
+      sendProfiles(ws);
       send(ws, {type:'joined', code:r.code, token, seat});
       return push(r);
+    }
+
+    if(m.type==='profile'){
+        const name = String(m.name||'');
+        if(!ROSTER.includes(name)) return;
+        const emoji = String(m.avatar||'');
+        if(emoji && ![...emoji].length) return;
+        if(emoji.length > 16) return;                   // one emoji, not a sentence
+        if(emoji) profiles[name] = emoji; else delete profiles[name];
+        saveProfiles();
+        sendProfiles(ws);                               // the sender may not be seated yet
+        for(const r of rooms.values()){
+          for(const p of r.seats) if(p) for(const sk of p.sockets) sendProfiles(sk);
+          for(const sk of (r.watchers||[])) sendProfiles(sk);
+        }
+      return;
     }
 
     if(!room) return;
@@ -647,6 +701,20 @@ wss.on('connection', ws => {
               better: n.better.map(c => c.id)
             }))});
         }catch(e){ console.error('[review]', e); return send(ws, {type:'review', unavailable:'error'}); }
+      }
+      case 'chat': {
+        if(seat===null) return;                       // watchers listen only
+        const text = String(m.text||'').replace(/\s+/g,' ').trim().slice(0,160);
+        if(!text) return;
+        const now = Date.now();
+        const p = room.seats[seat];
+        p.chatAt = p.chatAt || [];
+        p.chatAt = p.chatAt.filter(t => now - t < 10000);
+        if(p.chatAt.length >= 6) return;              // a light throttle
+        p.chatAt.push(now);
+        room.chat.push({seat, name:p.name, text, at:now, id:++chatId});
+        if(room.chat.length > 60) room.chat.shift();
+        return push(room);
       }
       case 'next':
         if(seat!==null) nextHand(room);

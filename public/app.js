@@ -10,12 +10,21 @@ const el=id=>document.getElementById(id);
 
 let ws=null, V=null, discardSel=new Set(), connected=false, myToken=null;
 let dealKey=null, dealAt=0;          // which hand we last animated, and when
+let profiles={}, roster=[];          // everyone's emoji, and who can play
+let pickName=null, pickEmoji=null;   // lobby selections before joining
+let chatSeen=0;                      // newest chat id already shown
+
+const EMOJI=['🍀','🔥','🐺','🦊','🐸','🦅','🐢','🦈','🐝','🌙','⭐️','⚡️','🌊','🍺',
+             '☕️','🍕','🌮','🎸','🎲','🏒','⚽️','🎯','🧊','👑','💀','🤠','🐙','🌵'];
+const DEALER_PORTRAIT='/tim.jpg';    // the house dealer
 
 const store={
   get token(){ try{ return localStorage.getItem('f45.token'); }catch{ return null; } },
   set token(v){ try{ localStorage.setItem('f45.token', v); }catch{} },
   get name(){ try{ return localStorage.getItem('f45.name')||''; }catch{ return ''; } },
   set name(v){ try{ localStorage.setItem('f45.name', v); }catch{} },
+  get emoji(){ try{ return localStorage.getItem('f45.emoji')||''; }catch{ return ''; } },
+  set emoji(v){ try{ localStorage.setItem('f45.emoji', v); }catch{} },
   get lastCode(){ try{ return localStorage.getItem('f45.lastCode')||''; }catch{ return ''; } },
   set lastCode(v){ try{ localStorage.setItem('f45.lastCode', v); }catch{} }
 };
@@ -91,6 +100,11 @@ function connect(then){
     }
     else if(m.type==='error') showError(m.message);
     else if(m.type==='review') showReview(m);
+    else if(m.type==='profiles'){
+      profiles=m.map||{}; roster=m.roster||[];
+      if(V) render();
+      if(ovKind==='lobby') paintLobby();      // the picker needs the roster
+    }
   };
   ws.onclose=()=>{ connected=false; banner(true); setTimeout(()=>connect(rejoin),1500); };
   ws.onerror=()=>{};
@@ -195,6 +209,7 @@ function render(){
   el('log').innerHTML=V.log.map(l=>'<p class="'+l.cls+'">'+l.html+'</p>').join('');
   renderHand();
   renderPromptAndBar();
+  renderChat();
   if(V.phase==='handover'||V.phase==='gameover') showResult();
 }
 
@@ -231,7 +246,7 @@ function renderSeats(){
     const mine=V.mySeat!==null&&teamOf(seat)===teamOf(V.mySeat);
     const plate='<div class="plate'+(isTurn?' active':'')+(mine?' us':'')+'">'+
       '<span class="dot '+dot+'"></span>'+
-      '<span class="avatar">'+nameOf(seat).slice(0,1).toUpperCase()+'</span>'+
+      '<span class="avatar">'+(profiles[nameOf(seat)]||nameOf(seat).slice(0,1).toUpperCase())+'</span>'+
       '<span class="pname">'+(seat===V.mySeat?'You':nameOf(seat))+'</span>'+
       (roles.length?'<span class="prole">'+roles.join(' · ')+'</span>':'')+chip+'</div>';
 
@@ -282,8 +297,10 @@ function renderWell(){
   }
   const wi=el('wellinfo');
   if(V.phase==='shuffling'){
-    wi.innerHTML='<span class="lbl">Shuffling</span><div class="shuffle">'+
-      '<span class="back"></span><span class="back"></span><span class="back"></span><span class="back"></span></div>'+
+    wi.innerHTML='<span class="lbl">Shuffling</span>'+
+      '<div class="dealerbox"><img class="dealerpic" src="'+DEALER_PORTRAIT+'" alt="the dealer">'+
+      '<div class="shuffle"><span class="back"></span><span class="back"></span>'+
+      '<span class="back"></span><span class="back"></span></div></div>'+
       '<span class="trumpname">'+nameOf(V.dealer)+' deals</span>';
   }else if(V.trump){
     wi.innerHTML='<span class="lbl">Trump</span>'+
@@ -570,11 +587,16 @@ function paintLobby(){
   } else {
     body='<div class="panel"><h3>Kitchen Table 45s</h3>'+
       '<p class="dek">Four players, two teams, six units a hand. Start a table and send the link to three friends — empty seats are covered by bots.</p>'+
-      '<div class="lobby">'+
-      '<label>Your name<input id="nm" maxlength="14" value="'+(store.name||'')+'" placeholder="Ajay"></label>'+
-      (code?'<label>Table code<input id="code" value="'+code+'" maxlength="4"></label>':'')+
-      '</div>'+
-      '<h4 style="margin:16px 0 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600">Your deck</h4>'+
+      '<h4 class="pickhead">Who are you?</h4>'+
+      '<div class="namegrid">'+(roster.length?roster:[store.name]).filter(Boolean).map(n=>
+        '<button class="nameopt" data-name="'+n+'" aria-pressed="'+(n===pickName)+'">'+
+        '<span class="em">'+(profiles[n]||'·')+'</span><span class="nm">'+n+'</span></button>').join('')+'</div>'+
+      '<h4 class="pickhead">Your emoji</h4>'+
+      '<div class="emgrid">'+EMOJI.map(e=>
+        '<button class="emopt" data-emoji="'+e+'" aria-pressed="'+(e===pickEmoji)+'">'+e+'</button>').join('')+'</div>'+
+      (code?'<div class="lobby" style="margin-top:14px">'+
+        '<label>Table code<input id="code" value="'+code+'" maxlength="4"></label></div>':'')+
+      '<h4 class="pickhead">Your deck</h4>'+
       deckPicker()+
       '<div class="row" style="margin-top:16px">'+
       (code?'<button class="btn solid" id="joinBtn">Join table</button>':'')+
@@ -584,21 +606,38 @@ function paintLobby(){
   paint('lobby', body);
 
   wireDeckPicker(ov);
+  // who you are, and your emoji
+  if(!pickName && store.name && (!roster.length || roster.includes(store.name))) pickName=store.name;
+  if(!pickEmoji && store.emoji) pickEmoji=store.emoji;
+  ov.querySelectorAll('[data-name]').forEach(b=>b.onclick=()=>{
+    pickName=b.dataset.name;
+    if(!pickEmoji && profiles[pickName]) pickEmoji=profiles[pickName];
+    paintLobby();
+  });
+  ov.querySelectorAll('[data-emoji]').forEach(b=>b.onclick=()=>{ pickEmoji=b.dataset.emoji; paintLobby(); });
   ov.querySelectorAll('[data-kitty]').forEach(b=>b.onclick=()=>
     send({type:'settings', settings:{kitty:Number(b.dataset.kitty)}}));
   const cp=el('copyLink'); if(cp) cp.onclick=copyInvite;
   const sb=el('startBtn'); if(sb) sb.onclick=()=>send({type:'start'});
   ov.querySelectorAll('[data-sit]').forEach(b=>b.onclick=()=>send({type:'sit', seat:+b.dataset.sit}));
+  const identify=()=>{
+    if(!pickName){ flashPick('Pick who you are first.'); return false; }
+    store.name=pickName;
+    if(pickEmoji){ store.emoji=pickEmoji; send({type:'profile', name:pickName, avatar:pickEmoji}); }
+    return true;
+  };
   const jb=el('joinBtn');
-  if(jb) jb.onclick=()=>{
-    store.name=(el('nm').value||'Player').trim()||'Player';
-    send({type:'join', code:el('code').value.trim().toUpperCase(), token:store.token, name:store.name});
-  };
+  if(jb) jb.onclick=()=>{ if(!identify()) return;
+    send({type:'join', code:el('code').value.trim().toUpperCase(), token:store.token, name:store.name}); };
   const nb=el('newBtn');
-  if(nb) nb.onclick=()=>{
-    store.name=(el('nm')?el('nm').value:'').trim()||'Player';
-    send({type:'create', name:store.name});
-  };
+  if(nb) nb.onclick=()=>{ if(!identify()) return; send({type:'create', name:store.name}); };
+}
+
+function flashPick(msg){
+  let n=ov.querySelector('.picknote');
+  if(!n){ n=document.createElement('p'); n.className='picknote';
+    const row=ov.querySelector('.panel .row'); if(row) row.parentNode.insertBefore(n,row); }
+  n.textContent=msg;
 }
 
 function copyInvite(){
@@ -638,6 +677,47 @@ function showResult(){
   const n=el('next'); if(n) n.onclick=()=>{ closeOv(); send({type:'next'}); };
   const a=el('again'); if(a) a.onclick=()=>{ closeOv(); send({type:'newgame'}); };
 }
+
+/* ---------------- table chat ----------------
+   Bubbles sit over empty cloth on the left of the table, clear of your hand,
+   the action bar and the trick well. */
+function chatUI(){
+  let box=el('chatbox');
+  if(box) return box;
+  box=document.createElement('div');
+  box.id='chatbox'; box.className='chatbox';
+  box.innerHTML='<div class="bubbles" id="bubbles"></div>'+
+    '<form class="chatform" id="chatform" autocomplete="off">'+
+      '<input id="chatin" maxlength="160" placeholder="Say something…" aria-label="Table chat">'+
+      '<button class="btn tiny" type="submit">Send</button></form>';
+  document.querySelector('.board').appendChild(box);
+  el('chatform').onsubmit=e=>{
+    e.preventDefault();
+    const i=el('chatin'), t=i.value.trim();
+    if(t){ send({type:'chat', text:t}); i.value=''; }
+  };
+  return box;
+}
+function renderChat(){
+  if(V.mySeat===null && !(V.chat||[]).length) return;
+  chatUI();
+  const list=V.chat||[];
+  const wrap=el('bubbles');
+  const sig=list.map(c=>c.id).join(',');
+  if(wrap.dataset.sig===sig) return;
+  wrap.dataset.sig=sig;
+  const now=Date.now();
+  wrap.innerHTML=list.slice(-5).map(c=>{
+    const mine=c.seat===V.mySeat;
+    const fresh=now-c.at<9000;
+    return '<div class="bubble'+(mine?' mine':'')+(fresh?' fresh':'')+'">'+
+      '<span class="who">'+(profiles[c.name]||'')+' '+esc(c.name)+'</span>'+
+      '<span class="said">'+esc(c.text)+'</span></div>';
+  }).join('');
+  wrap.scrollTop=wrap.scrollHeight;
+}
+const esc=t=>String(t).replace(/[&<>"']/g,ch=>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
 /* ---------------- post-hand review ---------------- */
 let reviewPending=false;
