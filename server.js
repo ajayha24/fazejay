@@ -54,6 +54,17 @@ try { profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, 'utf8')); } catch {}
 for(const k of Object.keys(profiles))
   if(typeof profiles[k] === 'string') profiles[k] = {avatar: profiles[k]};
 
+/* Whoever runs the table holds this. It clears a forgotten password so the
+   player can set a new one themselves — it never reveals the old one, because
+   nothing stored can be turned back into a password. */
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
+function adminOk(key){
+  if(!ADMIN_KEY) return false;
+  const a = Buffer.from(String(key||''));
+  const b = Buffer.from(ADMIN_KEY);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 /* Passwords are never stored, only a salted hash of them. */
 function hashPw(pw, salt){
   return crypto.scryptSync(String(pw), salt, 32).toString('hex');
@@ -68,6 +79,16 @@ function checkPassword(entry, pw){
   const a = Buffer.from(hashPw(pw, entry.salt), 'hex');
   const b = Buffer.from(entry.hash, 'hex');
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+/* A profile with no password set — new, or just reset — takes the next one
+   offered, so the player chooses it themselves and nobody else sees it. */
+function claimIfOpen(name, pw){
+  const e = profiles[name];
+  if(!e || e.hash) return false;
+  if(typeof pw !== 'string' || pw.length < 4) return false;
+  setPassword(e, pw);
+  saveProfiles();
+  return true;
 }
 const avatarOf = name => (profiles[name] && profiles[name].avatar) || '🙂';
 const needsPassword = name => !!(profiles[name] && profiles[name].hash);
@@ -122,7 +143,7 @@ function saveProfiles(){
     fs.writeFile(PROFILES_FILE, JSON.stringify(profiles), e => { if(e) console.error('[profiles]', e.message); });
   }, 400);
 }
-const sendProfiles = ws => send(ws, {type:'profiles', roster:roster(),
+const sendProfiles = ws => send(ws, {type:'profiles', roster:roster(), canReset: !!ADMIN_KEY,
   map: Object.fromEntries(roster().map(n => [n, avatarOf(n)])),
   locked: roster().filter(needsPassword)});
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -685,6 +706,8 @@ wss.on('connection', ws => {
       if(!host)
         return send(ws, {type:'error', message:'Pick a profile first, or make one.'});
       if(ws.signedIn !== host){
+        if(!profiles[host].hash && !claimIfOpen(host, m.password))
+          return send(ws, {type:'error', message:'Set a password of at least 4 characters for '+host+'.'});
         if(!checkPassword(profiles[host], m.password))
           return send(ws, {type:'error', message:'Wrong password for '+host+'.'});
         ws.signedIn = host;
@@ -713,6 +736,8 @@ wss.on('connection', ws => {
         if(!want)
           return send(ws, {type:'error', message:'Pick a profile first, or make one.'});
         if(ws.signedIn !== want){
+          if(!profiles[want].hash && !claimIfOpen(want, m.password))
+            return send(ws, {type:'error', message:'Set a password of at least 4 characters for '+want+'.'});
           if(!checkPassword(profiles[want], m.password))
             return send(ws, {type:'error', message:'Wrong password for '+want+'.'});
           ws.signedIn = want;
@@ -738,15 +763,31 @@ wss.on('connection', ws => {
       return push(r);
     }
 
+    if(m.type==='resetpw'){
+      ws.resetTries = (ws.resetTries || 0) + 1;
+      if(ws.resetTries > 5)
+        return send(ws, {type:'error', message:'Too many attempts. Reload and try again.'});
+      if(!ADMIN_KEY)
+        return send(ws, {type:'error', message:'No reset key is set on this server, so passwords cannot be reset here.'});
+      if(!adminOk(m.key))
+        return send(ws, {type:'error', message:'That reset key is not right.'});
+      const nm = findName(m.name);
+      if(!nm) return send(ws, {type:'error', message:'No profile by that name.'});
+      delete profiles[nm].salt;
+      delete profiles[nm].hash;
+      saveProfiles();
+      for(const r of rooms.values())
+        for(const p of r.seats) if(p && p.name === nm) p.sockets.forEach(sk => { sk.signedIn = null; });
+      broadcastProfiles(ws);
+      console.log('[admin] password cleared for', nm);
+      return send(ws, {type:'resetdone', name:nm});
+    }
     if(m.type==='signin'){
       const nm = findName(m.name);
       if(!nm) return send(ws, {type:'error', message:'No profile by that name.'});
       if(!checkPassword(profiles[nm], m.password))
         return send(ws, {type:'error', message:'Wrong password for '+nm+'.'});
-      if(!profiles[nm].hash && String(m.password||'').length >= 4){
-        setPassword(profiles[nm], m.password);          // claim an older profile
-        saveProfiles();
-      }
+      claimIfOpen(nm, m.password);
       ws.signedIn = nm;
       return send(ws, {type:'signedin', name:nm});
     }

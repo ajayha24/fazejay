@@ -47,6 +47,20 @@ no account needed. Free instances sleep after ~15 minutes idle and take about
 Fly.io and Railway work the same way: Node, `npm install`, `npm start`, one
 web port from `process.env.PORT`.
 
+## Forgotten passwords
+
+Each profile sets a password when it is made. Only a salted scrypt hash is
+stored, so a password cannot be read back by anyone — including whoever runs
+the server. What you can do is clear one, after which that player sets a new
+one themselves the next time they join.
+
+Set a reset key on the server to enable it. On Render: the service's
+**Environment** tab, add `ADMIN_KEY` with a value only you know, and save.
+Without it the reset screen says so and nothing can be cleared.
+
+Then in the lobby: pick the profile, choose **Forgot it?**, enter the key, and
+clear it. Anyone signed in as that profile is signed out at the same time.
+
 ## Reconnecting
 
 Your seat is held by a browser token in localStorage. Refresh, lose wifi, or

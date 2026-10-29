@@ -15,6 +15,7 @@ let pickName=null, pickEmoji=null;   // lobby selections before joining
 let makingProfile=false, newProfName='';
 let locked=[];                       // profiles that have a password set
 let pendingPw='';                    // kept only until the join succeeds
+let canReset=false;                  // whether this server has a reset key set
 let chatSeen=0;                      // newest chat id already shown
 let stats={};                        // lifetime record, by name
 
@@ -102,18 +103,32 @@ function connect(then){
       myToken=m.token; store.token=m.token; store.lastCode=m.code;
       history.replaceState({}, '', '/t/'+m.code);
     }
+    else if(m.type==='resetdone'){
+      paint('resetok','<div class="panel"><h3>Password cleared</h3>'+
+        '<p class="dek"><b>'+esc(m.name)+'</b> can now set a new one: pick that profile, '+
+        'type the new password, and join. Nobody — including you — can see what they choose.</p>'+
+        '<div class="row"><button class="btn solid" id="okReset">Done</button></div></div>');
+      el('okReset').onclick=()=>{ closeOv(); paintLobby(); };
+    }
     else if(m.type==='profilemade'){
       pickName=m.name; makingProfile=false; newProfName='';
       store.name=m.name; if(pickEmoji) store.emoji=pickEmoji;
       if(ovKind==='lobby') paintLobby();
     }
     else if(m.type==='error'){
-      if(ovKind==='lobby') flashPick(m.message); else showError(m.message);
+      if(ovKind==='lobby') flashPick(m.message);
+      else if(ovKind==='reset'){
+        let n=ov.querySelector('.rserr');
+        if(!n){ n=document.createElement('p'); n.className='dek rserr'; n.style.color='var(--rouge-bright)';
+          const row=ov.querySelector('.panel .row'); row.parentNode.insertBefore(n,row); }
+        n.textContent=m.message;
+      }
+      else showError(m.message);
     }
     else if(m.type==='review') showReview(m);
     else if(m.type==='stats'){ stats=m.map||{}; if(ovKind==='stats') paintStats(); }
     else if(m.type==='profiles'){
-      profiles=m.map||{}; roster=m.roster||[]; locked=m.locked||[];
+      profiles=m.map||{}; roster=m.roster||[]; locked=m.locked||[]; canReset=!!m.canReset;
       if(V) render();
       if(ovKind==='lobby') paintLobby();      // the picker needs the roster
     }
@@ -652,7 +667,10 @@ function paintLobby(){
       (pickName&&!makingProfile
         ? '<div class="lobby" style="margin-top:12px">'+
             '<label>Password<input id="joinPw" type="password" maxlength="40" placeholder="'+
-            (locked.includes(pickName)?'Your password':'Set a password for this profile')+'"></label></div>'
+            (locked.includes(pickName)?'Your password':'Set a password for this profile')+'"></label></div>'+
+          (locked.includes(pickName)
+            ? '<div class="row" style="margin-top:7px"><button class="btn quiet tiny" id="forgotBtn">Forgot it?</button></div>'
+            : '')
         : '')+
       (code?'<div class="lobby" style="margin-top:12px">'+
         '<label>Table code<input id="code" value="'+code+'" maxlength="4"></label></div>':'')+
@@ -698,6 +716,8 @@ function paintLobby(){
   };
   const pf=el('profName');
   if(pf) pf.oninput=()=>{ newProfName=pf.value; };
+  const fg=el('forgotBtn');
+  if(fg) fg.onclick=()=>paintReset(pickName);
   const ph=el('photoBtn');
   if(ph) ph.onclick=()=>openCropper(data=>{
     pickEmoji=data;
@@ -731,6 +751,28 @@ function paintLobby(){
   const nb=el('newBtn');
   if(nb) nb.onclick=()=>{ if(!identify()) return;
     send({type:'create', name:store.name, password:pendingPw}); };
+}
+
+/* Resetting clears the password so the player picks a new one. The person
+   running the table never learns it. */
+function paintReset(name){
+  paint('reset','<div class="panel"><h3>Forgotten password</h3>'+
+    '<p class="dek">Passwords are stored scrambled, so nobody can look one up — not even whoever runs the table. '+
+    'What they can do is clear it, and then you choose a new one.</p>'+
+    (canReset
+      ? '<div class="lobby">'+
+          '<label>Profile<input id="rsName" maxlength="14" value="'+esc(name||'')+'"></label>'+
+          '<label>Reset key<input id="rsKey" type="password" maxlength="80" placeholder="Held by whoever runs the table"></label>'+
+        '</div>'+
+        '<div class="row" style="margin-top:14px">'+
+          '<button class="btn solid" id="rsGo">Clear the password</button>'+
+          '<button class="btn quiet" id="rsCancel">Back</button></div>'
+      : '<p class="dek" style="color:var(--rouge-bright)">This server has no reset key set, so passwords cannot be cleared here yet.</p>'+
+        '<div class="row"><button class="btn quiet" id="rsCancel">Back</button></div>')+
+    '</div>');
+  const go=el('rsGo');
+  if(go) go.onclick=()=>send({type:'resetpw', name:el('rsName').value.trim(), key:el('rsKey').value});
+  el('rsCancel').onclick=()=>{ closeOv(); paintLobby(); };
 }
 
 function flashPick(msg){
