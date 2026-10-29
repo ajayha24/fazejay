@@ -391,7 +391,18 @@ function declare(room, seat, count){
 function contribute(room, seat, ids){
   const G = room.G;
   if(G.phase!=='declaring' || !G.decl || G.resolving || G.decl.turn!==seat) return;
-  if(!R.validContribution(G.hands[seat], G.trump, G.decl.count, ids)) return;
+  if(!R.validContribution(G.hands[seat], G.trump, G.decl.count, ids)){
+    // Never leave the table waiting: say what went wrong, and fall back to a
+    // contribution we know is valid rather than silently doing nothing.
+    const fixed = R.botContribution(G.hands[seat], G.trump, G.decl.count);
+    if(R.validContribution(G.hands[seat], G.trump, G.decl.count, fixed)){
+      console.warn('[declare] bad contribution from seat ' + seat + ' — using a valid one');
+      ids = fixed;
+    } else {
+      console.error('[declare] no valid contribution for seat ' + seat);
+      return;
+    }
+  }
   const set = new Set(ids);
   G.decl.cards[seat] = G.hands[seat].filter(c => set.has(c.id));
   G.hands[seat] = G.hands[seat].filter(c => !set.has(c.id));
@@ -556,7 +567,8 @@ function drive(room){
       });
     return;                                    // only humans left to lock in
   }
-  if(G.phase==='declaring' && G.decl && isBot(room, G.decl.turn)){
+  if(G.phase==='declaring' && G.decl && G.decl.turn !== null &&
+     G.decl.turn >= 0 && G.decl.turn < 4 && isBot(room, G.decl.turn)){
     const seat = G.decl.turn;
     return later(room, 620, () =>
       contribute(room, seat, R.botContribution(G.hands[seat], G.trump, G.decl.count)));
@@ -936,6 +948,8 @@ setInterval(() => {
     } else if(G.resolving && G.phase === 'drawing'){
       console.warn('[watchdog] lost draw beat, room', r.code);
       serveDraws(r);
+    } else if(G.phase === 'declaring' && G.decl && G.decl.turn !== null){
+      drive(r);                                   // may still be waiting on a bot
     } else if(G.phase === 'shuffling'){
       console.warn('[watchdog] lost deal, room', r.code);
       dealHand(r);
