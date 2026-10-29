@@ -37,8 +37,9 @@ const server = http.createServer((req,res) => {
 const rooms = new Map();
 let chatId = 0;
 
-/* Profiles are made by whoever sits down: type a name once and it joins the
-   list everyone picks from afterwards. */
+/* Profiles are made by whoever sits down: type a name once, set a password,
+   and it joins the list everyone picks from afterwards. A profile is stored as
+   {avatar, salt, hash}; older string-only entries are upgraded on read. */
 const NAME_OK = /^[A-Za-z0-9][A-Za-z0-9 '\-]{0,13}$/;
 const roster = () => Object.keys(profiles);
 const findName = want =>
@@ -50,6 +51,26 @@ const findName = want =>
 const PROFILES_FILE = path.join(__dirname, 'profiles.json');
 let profiles = {};
 try { profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, 'utf8')); } catch {}
+for(const k of Object.keys(profiles))
+  if(typeof profiles[k] === 'string') profiles[k] = {avatar: profiles[k]};
+
+/* Passwords are never stored, only a salted hash of them. */
+function hashPw(pw, salt){
+  return crypto.scryptSync(String(pw), salt, 32).toString('hex');
+}
+function setPassword(entry, pw){
+  entry.salt = crypto.randomBytes(16).toString('hex');
+  entry.hash = hashPw(pw, entry.salt);
+}
+function checkPassword(entry, pw){
+  if(!entry || !entry.hash) return true;              // never had one set
+  if(typeof pw !== 'string' || !pw) return false;
+  const a = Buffer.from(hashPw(pw, entry.salt), 'hex');
+  const b = Buffer.from(entry.hash, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+const avatarOf = name => (profiles[name] && profiles[name].avatar) || '🙂';
+const needsPassword = name => !!(profiles[name] && profiles[name].hash);
 /* Lifetime record, by name. Same idea as the emoji: kept on disk so it
    outlives a restart. */
 const STATS_FILE = path.join(__dirname, 'stats.json');
@@ -101,7 +122,9 @@ function saveProfiles(){
     fs.writeFile(PROFILES_FILE, JSON.stringify(profiles), e => { if(e) console.error('[profiles]', e.message); });
   }, 400);
 }
-const sendProfiles = ws => send(ws, {type:'profiles', roster:roster(), map:profiles});
+const sendProfiles = ws => send(ws, {type:'profiles', roster:roster(),
+  map: Object.fromEntries(roster().map(n => [n, avatarOf(n)])),
+  locked: roster().filter(needsPassword)});
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function newCode(){
   let c;
@@ -557,7 +580,7 @@ function drive(room){
 }
 
 /* ---------------- per-seat views ---------------- */
-function viewFor(room, mySeat){
+function viewFor(room, mySeat, watcherWs){
   const G = room.G;
   const base = {
     code: room.code,
@@ -573,7 +596,9 @@ function viewFor(room, mySeat){
       empty: !p
     })),
     log: room.log.slice(0,40),
-    chat: room.chat.slice(-12)
+    chat: room.chat.slice(-12),
+    spectators: [...(room.watchers||[])].map(w => w.watching).filter(Boolean),
+    spectating: !!(watcherWs && watcherWs.watching)
   };
   if(!G){ base.phase = 'lobby'; return base; }
   return Object.assign(base, {
@@ -601,7 +626,9 @@ function viewFor(room, mySeat){
     result: G.result,
     winner: G.winner,
     // Only ever your own cards leave the server.
+    // A spectator signed in by name sees the whole table.
     hand: mySeat===null ? [] : G.hands[mySeat],
+    allHands: (mySeat===null && watcherWs && watcherWs.watching) ? G.hands : null,
     resolving: !!G.resolving,
     decl: G.decl ? {leader:G.decl.leader, count:G.decl.count, turn:G.decl.turn,
                     cards:G.decl.cards} : null,
@@ -628,7 +655,7 @@ function push(room){
     for(const ws of p.sockets) if(ws.readyState===1) ws.send(msg);
   }
   for(const ws of room.watchers || []){
-    if(ws.readyState===1) ws.send(JSON.stringify({type:'state', view:viewFor(room,null)}));
+    if(ws.readyState===1) ws.send(JSON.stringify({type:'state', view:viewFor(room, null, ws)}));
   }
 }
 
@@ -657,6 +684,11 @@ wss.on('connection', ws => {
       const host = findName(m.name);
       if(!host)
         return send(ws, {type:'error', message:'Pick a profile first, or make one.'});
+      if(ws.signedIn !== host){
+        if(!checkPassword(profiles[host], m.password))
+          return send(ws, {type:'error', message:'Wrong password for '+host+'.'});
+        ws.signedIn = host;
+      }
       r.seats[0] = {token, name:host, bot:false, sockets:new Set([ws]), away:false};
       r.hostToken = token;
       ws.room = r; ws.token = token;
@@ -680,12 +712,22 @@ wss.on('connection', ws => {
         const want = findName(m.name);
         if(!want)
           return send(ws, {type:'error', message:'Pick a profile first, or make one.'});
+        if(ws.signedIn !== want){
+          if(!checkPassword(profiles[want], m.password))
+            return send(ws, {type:'error', message:'Wrong password for '+want+'.'});
+          ws.signedIn = want;
+        }
         if(r.seats.some(p => p && p.name === want))
           return send(ws, {type:'error', message:want+' is already at this table. Pick another profile.'});
         seat = m.seat!==undefined && m.seat!==null && !r.seats[m.seat] ? Number(m.seat)
              : r.seats.findIndex(p => !p);
         if(seat === -1 || !(seat>=0 && seat<4) || r.seats[seat]){
-          r.watchers.add(ws); send(ws, {type:'joined', code:r.code, token, seat:null}); return push(r);
+          // Table is full — watch it instead, under your own name.
+          ws.watching = want;
+          r.watchers.add(ws);
+          log(r, '<b>'+want+'</b> is spectating.');
+          send(ws, {type:'joined', code:r.code, token, seat:null, spectating:true});
+          return push(r);
         }
         r.seats[seat] = {token, name:want, bot:false, sockets:new Set([ws]), away:false};
         if(!r.hostToken) r.hostToken = token;
@@ -696,6 +738,18 @@ wss.on('connection', ws => {
       return push(r);
     }
 
+    if(m.type==='signin'){
+      const nm = findName(m.name);
+      if(!nm) return send(ws, {type:'error', message:'No profile by that name.'});
+      if(!checkPassword(profiles[nm], m.password))
+        return send(ws, {type:'error', message:'Wrong password for '+nm+'.'});
+      if(!profiles[nm].hash && String(m.password||'').length >= 4){
+        setPassword(profiles[nm], m.password);          // claim an older profile
+        saveProfiles();
+      }
+      ws.signedIn = nm;
+      return send(ws, {type:'signedin', name:nm});
+    }
     if(m.type==='stats'){ return sendStats(ws); }
     if(m.type==='newprofile'){
         const want = String(m.name||'').trim().replace(/\s+/g,' ');
@@ -706,7 +760,12 @@ wss.on('connection', ws => {
         const av = okAvatar(m.avatar);
         if(m.avatar && !av)
           return send(ws, {type:'error', message:'That picture could not be used — try a smaller crop.'});
-        profiles[want] = av || '🙂';
+        const pw = String(m.password||'');
+        if(pw.length < 4)
+          return send(ws, {type:'error', message:'Give the profile a password of at least 4 characters.'});
+        const entry = {avatar: av || '🙂'};
+        setPassword(entry, pw);
+        profiles[want] = entry;
         saveProfiles();
         broadcastProfiles(ws);
         return send(ws, {type:'profilemade', name:want});
@@ -717,7 +776,9 @@ wss.on('connection', ws => {
         const av2 = okAvatar(m.avatar);
         if(!av2)
           return send(ws, {type:'error', message:'That picture could not be used — try a smaller crop.'});
-        profiles[name] = av2;
+        if(!ws.signedIn || ws.signedIn !== name)
+          return send(ws, {type:'error', message:'Sign in as '+name+' before changing the picture.'});
+        profiles[name].avatar = av2;
         saveProfiles();
         broadcastProfiles(ws);
       return;
@@ -813,6 +874,7 @@ wss.on('connection', ws => {
     const room = ws.room;
     if(!room) return;
     if(room.watchers) room.watchers.delete(ws);
+    if(ws.watching){ log(room, '<b>'+ws.watching+'</b> stopped watching.'); ws.watching = null; }
     const seat = seatOfToken(room, ws.token);
     if(seat !== null){
       const p = room.seats[seat];

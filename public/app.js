@@ -13,6 +13,8 @@ let dealKey=null, dealAt=0;          // which hand we last animated, and when
 let profiles={}, roster=[];          // everyone's emoji, and who can play
 let pickName=null, pickEmoji=null;   // lobby selections before joining
 let makingProfile=false, newProfName='';
+let locked=[];                       // profiles that have a password set
+let pendingPw='';                    // kept only until the join succeeds
 let chatSeen=0;                      // newest chat id already shown
 let stats={};                        // lifetime record, by name
 
@@ -111,7 +113,7 @@ function connect(then){
     else if(m.type==='review') showReview(m);
     else if(m.type==='stats'){ stats=m.map||{}; if(ovKind==='stats') paintStats(); }
     else if(m.type==='profiles'){
-      profiles=m.map||{}; roster=m.roster||[];
+      profiles=m.map||{}; roster=m.roster||[]; locked=m.locked||[];
       if(V) render();
       if(ovKind==='lobby') paintLobby();      // the picker needs the roster
     }
@@ -194,6 +196,15 @@ function render(){
       (V.phase==='drawing'&&V.drawers.includes(V.mySeat)&&!V.iAmReady) || !!V.mustPlay);
   document.querySelector('.board').classList.toggle('myturn', !!myTurn);
   el('tableTag').textContent='Table '+V.code;
+  let spec=el('specnote');
+  const names=(V.spectators||[]);
+  if(names.length||V.spectating){
+    if(!spec){ spec=document.createElement('div'); spec.id='specnote'; spec.className='specnote';
+      document.querySelector('.board').appendChild(spec); }
+    spec.innerHTML=(V.spectating?'<b>You are spectating</b> — every hand is face up. ':'')+
+      (names.length? names.map(esc).join(', ')+(names.length>1?' are':' is')+' spectating.' : '');
+    spec.hidden=false;
+  } else if(spec) spec.hidden=true;
   let banner=document.getElementById('turnbanner');
   if(!banner){
     banner=document.createElement('div');
@@ -262,7 +273,8 @@ function renderSeats(){
 
     if(pos===0){ box.innerHTML=plate; continue; }
     const vert=(pos===1||pos===3);
-    const backSig=[V.handNo, V.counts[seat]||0, vert].join('|');
+    const backSig=[V.handNo, V.counts[seat]||0, vert,
+      V.allHands?(V.allHands[seat]||[]).map(c=>c.id).join(''):''].join('|');
     const existing=box.querySelector('.backs');
     if(existing && existing.dataset.sig===backSig){
       // leave the backs alone — only the plate above or below them changes
@@ -271,10 +283,14 @@ function renderSeats(){
       continue;
     }
     const an=dealing()&&V.phase==='bidding'?dealDelays()[seat]:null;
-    const backs='<div class="backs'+(vert?' vert':'')+'" data-sig="'+backSig+'">'+
-      Array.from({length:V.counts[seat]||0},(_,idx)=>
-        an ? '<span class="back dealt"'+dealStyle(an, idx, seat, 2)+'></span>'
-           : '<span class="back"></span>').join('')+'</div>';
+    const open=V.allHands && V.allHands[seat];
+    const backs=open
+      ? '<div class="backs open" data-sig="'+backSig+'-open">'+
+        open.map(c=>cardHTML(c,{small:true,trump:V.trump&&isTrumpC(c)})).join('')+'</div>'
+      : '<div class="backs'+(vert?' vert':'')+'" data-sig="'+backSig+'">'+
+        Array.from({length:V.counts[seat]||0},(_,idx)=>
+          an ? '<span class="back dealt"'+dealStyle(an, idx, seat, 2)+'></span>'
+             : '<span class="back"></span>').join('')+'</div>';
     box.innerHTML = pos===2 ? plate+backs : backs+plate;
   }
 }
@@ -413,7 +429,12 @@ function renderHand(){
   if(h0.dataset.sig===sig) return;
   h0.dataset.sig=sig;
   const h=el('hand');
-  if(V.mySeat===null||!V.hand){ h.innerHTML=''; return; }
+  if(V.mySeat===null){
+    const mine=V.allHands && V.allHands[0];
+    h.innerHTML=mine? mine.map(c=>cardHTML(c,{trump:V.trump&&isTrumpC(c)})).join('') : '';
+    return;
+  }
+  if(!V.hand){ h.innerHTML=''; return; }
   const discarding=V.phase==='drawing'&&V.drawers.includes(V.mySeat)&&!V.iAmReady;
   const contributing=!!V.mustPlay;
   const anim=dealing()&&V.phase==='bidding'?dealDelays()[V.mySeat]:null;
@@ -616,6 +637,9 @@ function paintLobby(){
           '<div class="row" style="margin-top:9px">'+
             '<button class="btn quiet tiny" id="photoBtn">'+(isPhoto(pickEmoji)?'Change photo':'Use a photo')+'</button>'+
             (isPhoto(pickEmoji)?'<img class="pfp lg" src="'+pickEmoji+'" alt="your picture">':'')+'</div>'+
+          '<div class="lobby" style="margin-top:10px">'+
+            '<label>Password<input id="profPw" type="password" maxlength="40" placeholder="At least 4 characters"></label>'+
+          '</div>'+
           '<div class="row" style="margin-top:12px"><button class="btn solid" id="makeProfBtn">Create profile</button></div>'
         : (pickName
             ? '<h4 class="pickhead">Your emoji, or a photo</h4>'+
@@ -625,7 +649,12 @@ function paintLobby(){
                 '<button class="btn quiet tiny" id="photoBtn">'+(isPhoto(profiles[pickName])?'Change photo':'Use a photo')+'</button>'+
                 (isPhoto(profiles[pickName])?'<img class="pfp lg" src="'+profiles[pickName]+'" alt="your picture">':'')+'</div>'
             : ''))+
-      (code?'<div class="lobby" style="margin-top:14px">'+
+      (pickName&&!makingProfile
+        ? '<div class="lobby" style="margin-top:12px">'+
+            '<label>Password<input id="joinPw" type="password" maxlength="40" placeholder="'+
+            (locked.includes(pickName)?'Your password':'Set a password for this profile')+'"></label></div>'
+        : '')+
+      (code?'<div class="lobby" style="margin-top:12px">'+
         '<label>Table code<input id="code" value="'+code+'" maxlength="4"></label></div>':'')+
       '<h4 class="pickhead">Your deck</h4>'+
       deckPicker()+
@@ -647,7 +676,11 @@ function paintLobby(){
   });
   ov.querySelectorAll('[data-emoji]').forEach(b=>b.onclick=()=>{
     pickEmoji=b.dataset.emoji;
-    if(!makingProfile && pickName) send({type:'profile', name:pickName, avatar:pickEmoji});
+    if(!makingProfile && pickName){
+      const f=el('joinPw'), pw=f?f.value:'';
+      if(pw){ send({type:'signin', name:pickName, password:pw});
+              setTimeout(()=>send({type:'profile', name:pickName, avatar:pickEmoji}), 120); }
+    }
     paintLobby();
   });
   const np=el('newProfBtn');
@@ -657,16 +690,23 @@ function paintLobby(){
   if(mk) mk.onclick=()=>{
     const nm=(el('profName').value||'').trim();
     if(!nm) return flashPick('Type a name for the profile.');
-    if(!pickEmoji) return flashPick('Pick an emoji too.');
-    newProfName=nm;
-    send({type:'newprofile', name:nm, avatar:pickEmoji});
+    if(!pickEmoji) return flashPick('Pick an emoji or a photo too.');
+    const pw=(el('profPw').value||'');
+    if(pw.length<4) return flashPick('Give it a password of at least 4 characters.');
+    newProfName=nm; pendingPw=pw;
+    send({type:'newprofile', name:nm, avatar:pickEmoji, password:pw});
   };
   const pf=el('profName');
   if(pf) pf.oninput=()=>{ newProfName=pf.value; };
   const ph=el('photoBtn');
   if(ph) ph.onclick=()=>openCropper(data=>{
     pickEmoji=data;
-    if(!makingProfile && pickName){ send({type:'profile', name:pickName, avatar:data}); store.emoji=data; }
+    if(!makingProfile && pickName){
+      const f=el('joinPw'), pw=f?f.value:'';
+      if(pw) send({type:'signin', name:pickName, password:pw});
+      setTimeout(()=>send({type:'profile', name:pickName, avatar:data}), 120);
+      store.emoji=data;
+    }
     paintLobby();
   });
   ov.querySelectorAll('[data-kitty]').forEach(b=>b.onclick=()=>
@@ -676,15 +716,21 @@ function paintLobby(){
   ov.querySelectorAll('[data-sit]').forEach(b=>b.onclick=()=>send({type:'sit', seat:+b.dataset.sit}));
   const identify=()=>{
     if(!pickName){ flashPick('Pick a profile first, or make one.'); return false; }
-    store.name=pickName;
-    if(pickEmoji){ store.emoji=pickEmoji; send({type:'profile', name:pickName, avatar:pickEmoji}); }
+    const f=el('joinPw');
+    const pw=f ? f.value : (pendingPw||'');
+    if(!pw){ flashPick(locked.includes(pickName)?'Enter the password for '+pickName+'.'
+                                                :'Set a password for '+pickName+'.'); return false; }
+    if(!locked.includes(pickName) && pw.length<4){ flashPick('Use at least 4 characters.'); return false; }
+    store.name=pickName; pendingPw=pw;
     return true;
   };
   const jb=el('joinBtn');
   if(jb) jb.onclick=()=>{ if(!identify()) return;
-    send({type:'join', code:el('code').value.trim().toUpperCase(), token:store.token, name:store.name}); };
+    send({type:'join', code:el('code').value.trim().toUpperCase(), token:store.token,
+          name:store.name, password:pendingPw}); };
   const nb=el('newBtn');
-  if(nb) nb.onclick=()=>{ if(!identify()) return; send({type:'create', name:store.name}); };
+  if(nb) nb.onclick=()=>{ if(!identify()) return;
+    send({type:'create', name:store.name, password:pendingPw}); };
 }
 
 function flashPick(msg){
@@ -774,6 +820,86 @@ function renderChat(){
 }
 const esc=t=>String(t).replace(/[&<>"']/g,ch=>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+/* ---------------- the walkthrough ----------------
+   A scripted hand that plays itself, so the rules can be watched rather than
+   read. Drawn with the same cards as the game, so nothing has to be loaded. */
+const DEMO_SEATS=['You','Izak','Tim','Kate'];
+const demoCard=id=>({r:id.slice(0,-1), s:id.slice(-1), id});
+const DEMO=[
+  {t:'Five cards each, three then two.',
+   hand:['5S','KS','9S','QH','7D'], note:'This is your hand. Spades look strong — five of them is the best trump there is.'},
+  {t:'The auction goes round once.',
+   hand:['5S','KS','9S','QH','7D'],
+   bids:[null,'pass',15,'pass'],
+   note:'Each player passes or bids higher. 15 means taking 3 of the 6 units, 20 means 4, 25 means 5, 30 means all six.'},
+  {t:'You hold the 5 — that is always worth a bid.',
+   hand:['5S','KS','9S','QH','7D'], bids:[20,'pass',15,'pass'],
+   note:'The 5 of trump is the highest card in the game. With the king behind it, 20 is right here.'},
+  {t:'You bought it, so you name trump.',
+   hand:['5S','KS','9S','QH','7D'], bids:[20,'pass',15,'pass'], trump:'S',
+   note:'Spades. Now the ace of hearts joins them — it is the third-best trump whatever gets called.'},
+  {t:'Everyone throws what is not trump.',
+   hand:['5S','KS','9S'], bids:[20,'pass',15,'pass'], trump:'S', kept:3,
+   note:'You keep three spades and draw two fresh cards. How many each player keeps tells you their trump count.'},
+  {t:'Back up to five.',
+   hand:['5S','KS','9S','AH','3C'], trump:'S', kept:3,
+   note:'The ace of hearts came back — now you hold three of the top five trumps.'},
+  {t:'The bidder leads.', hand:['5S','KS','9S','AH','3C'], trump:'S',
+   trick:[['3C',0]], note:'A low plain card first. Leading the 5 straight away buries your partner\'s good cards.'},
+  {t:'Follow the suit led, or trump it.', hand:['5S','KS','9S','AH'], trump:'S',
+   trick:[['3C',0],['KC',1],['9S',2]], note:'Izak plays a club. Tim has none, so he trumps with the 9 of spades and is winning.'},
+  {t:'That trick is yours.', hand:['5S','KS','AH'], trump:'S',
+   trick:[['3C',0],['KC',1],['9S',2],['AH',3]], won:true,
+   note:'Your partner comes over the top with the ace of hearts. Trump beats any plain card, and the higher trump wins.'},
+  {t:'Six units, not five.', trump:'S', units:true,
+   note:'One for each of the five tricks, and one more for whoever played the highest trump all hand. You bid 20, so you need 4 of those 6.'}
+];
+let demoStep=0, demoTimer=null;
+
+function paintDemo(){
+  const d=DEMO[demoStep];
+  const card=(id,cls)=>cardHTML(demoCard(id),{small:true,trump:d.trump&&(id.slice(-1)===d.trump||id==='AH'),cls});
+  let stage='';
+  if(d.trick){
+    stage='<div class="demotrick">'+d.trick.map(([id,seat])=>
+      '<div class="dt"><span class="who">'+DEMO_SEATS[seat]+'</span>'+card(id)+'</div>').join('')+'</div>';
+  } else if(d.bids){
+    stage='<div class="demobids">'+d.bids.map((b,i)=>
+      '<div class="db'+(b&&b!=='pass'?' in':'')+'"><span class="who">'+DEMO_SEATS[i]+'</span>'+
+      '<span class="bv">'+(b===null?'—':b==='pass'?'pass':b)+'</span></div>').join('')+'</div>';
+  } else if(d.units){
+    stage='<div class="demounits">'+[1,2,3,4,5].map(n=>'<span class="u">'+n+'</span>').join('')+
+          '<span class="u hi">high</span></div>';
+  }
+  const hand=d.hand? '<div class="demohand">'+d.hand.map(id=>card(id)).join('')+'</div>' : '';
+  const trumpTag=d.trump? '<span class="demotrump">trump '+GLYPH[d.trump]+'</span>' : '';
+
+  paint('demo','<div class="panel" style="max-width:520px"><h3>How a hand goes</h3>'+
+    '<div class="demostage">'+stage+hand+'</div>'+
+    '<p class="demotitle">'+d.t+' '+trumpTag+'</p>'+
+    '<p class="demonote">'+d.note+'</p>'+
+    '<div class="demobar"><div class="demodots">'+DEMO.map((_,i)=>
+      '<span class="dot'+(i===demoStep?' on':'')+'"></span>').join('')+'</div></div>'+
+    '<div class="row" style="margin-top:12px">'+
+      '<button class="btn quiet" id="demoPrev"'+(demoStep?'':' disabled')+'>Back</button>'+
+      '<button class="btn solid" id="demoNext">'+(demoStep===DEMO.length-1?'Start again':'Next')+'</button>'+
+      '<button class="btn quiet" id="demoPlay">'+(demoTimer?'Pause':'Play it through')+'</button>'+
+      '<button class="btn quiet" id="demoClose">Close</button>'+
+    '</div></div>');
+  el('demoPrev').onclick=()=>{ stopDemo(); if(demoStep) demoStep--; paintDemo(); };
+  el('demoNext').onclick=()=>{ stopDemo(); demoStep=(demoStep+1)%DEMO.length; paintDemo(); };
+  el('demoPlay').onclick=()=>{ demoTimer? stopDemo() : playDemo(); paintDemo(); };
+  el('demoClose').onclick=()=>{ stopDemo(); closeOv(); };
+}
+function playDemo(){
+  stopDemo();
+  demoTimer=setInterval(()=>{
+    if(demoStep===DEMO.length-1){ stopDemo(); paintDemo(); return; }
+    demoStep++; paintDemo();
+  }, 4200);
+}
+function stopDemo(){ clearInterval(demoTimer); demoTimer=null; }
 
 /* ---------------- profile photo ----------------
    Pick a picture, pan and zoom it inside a square, and keep a small crop.
@@ -999,8 +1125,12 @@ el('btnRules').onclick=()=>{
   '<li><b>Plain suit led:</b> follow it or trump it — you can’t throw off a third suit while holding the suit led.</li>'+
   '<li><b>Trump led:</b> you must follow, except the <b>5, jack and ace of hearts</b> may be held back when they are your only trumps <b>and</b> they outrank the card led — lead the 5 and a lone jack or ace of hearts has to fall.</li>'+
   '<li>Trump beats any plain card; otherwise the highest card of the suit led takes it.</li></ul>'+
-  '</div><div class="row" style="margin-top:16px"><button class="btn quiet" id="closeR">Close</button></div></div>');
+  '</div><div class="row" style="margin-top:16px">'+
+  '<button class="btn solid" id="watchDemo">Watch a hand</button>'+
+  '<button class="btn quiet" id="closeR">Close</button></div></div>');
   el('closeR').onclick=closeOv;
+  const wd=el('watchDemo');
+  if(wd) wd.onclick=()=>{ demoStep=0; paintDemo(); };
 };
 el('btnSettings').onclick=()=>{
   const s=V.settings;

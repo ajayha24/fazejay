@@ -257,9 +257,16 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--brass);out
 
 /* ---------- overlays ---------- */
 .scrim{
+  /* Anchored to the top and scrollable: on a short phone screen a centred
+     panel can push its own buttons past the bottom with no way to reach them.
+     dvh follows Safari's shrinking toolbars, which vh does not. */
   position:fixed;inset:0;background:rgba(6,16,15,.72);backdrop-filter:blur(3px);
-  display:grid;place-items:center;padding:24px;z-index:40;
+  display:flex;justify-content:center;align-items:flex-start;
+  padding:18px 16px;z-index:40;
+  overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  height:100dvh;
 }
+.scrim>.panel{margin:auto 0}
 .panel{
   background:linear-gradient(170deg,#1b3b37,#122b28);
   border:1px solid rgba(207,161,78,.32);border-radius:14px;
@@ -713,3 +720,90 @@ table.stats td.none{text-align:center; color:var(--muted); padding:18px 0}
   background:radial-gradient(circle at 50% 50%, transparent 49.5%, rgba(8,24,22,.62) 50%);
 }
 .zoomer{width:236px; display:block; margin:12px auto 0; accent-color:var(--brass)}
+
+/* ---------- spectating ---------- */
+.specnote{
+  position:absolute; top:58px; left:50%; transform:translateX(-50%);
+  background:rgba(8,24,22,.85); border:1px solid var(--brass-dim); color:var(--text);
+  border-radius:999px; padding:5px 15px; font-size:12.5px; z-index:7;
+  pointer-events:none; white-space:nowrap; max-width:92%; overflow:hidden; text-overflow:ellipsis;
+}
+.specnote b{color:var(--brass)}
+.backs.open{display:flex; gap:3px; flex-wrap:nowrap}
+.backs.open .card{--card-w:40px;--card-h:58px;width:40px;height:58px;margin:0}
+.backs.open .card .r{font-size:11px}
+.backs.open .card .s{font-size:9px}
+.backs.open .card .big{font-size:17px}
+
+/* ---------- phones: fit the lobby without scrolling where possible ---------- */
+@media (max-width:760px){
+  .scrim{padding:10px 10px 28px; align-items:flex-start}
+  .scrim>.panel{margin:0}
+  .panel{padding:15px 14px}
+  .panel h3{font-size:19px}
+  .panel .dek{font-size:12.5px;margin-bottom:11px}
+  .pickhead{margin-top:12px}
+  .namegrid{grid-template-columns:repeat(4,1fr);gap:5px}
+  .nameopt{padding:5px 3px}
+  .nameopt .em{font-size:15px}
+  .nameopt .nm{font-size:11px}
+  .nameopt .em .pfp{width:21px;height:21px}
+  .emgrid{grid-template-columns:repeat(8,1fr);gap:4px}
+  .emopt{padding:3px 0;font-size:15px}
+  .deckrow{gap:6px}
+  .deckopt{min-width:0;padding:6px 8px}
+  .deckswatch i{width:19px;height:27px}
+  .deckopt .nm{font-size:11px}
+  .lobby input{padding:8px 10px}
+  .codebig{font-size:28px;padding:0}
+  .seatrow{padding:6px 9px;font-size:12.5px}
+  .review{max-height:34vh}
+  .cropwrap,.zoomer{width:200px}
+  .cropwrap canvas{width:200px;height:200px}
+  .specnote{top:auto;bottom:96px;font-size:11.5px}
+}
+/* very short screens: let the panel scroll inside itself so buttons stay put */
+@media (max-height:620px){
+  .panel{max-height:calc(100dvh - 36px);overflow-y:auto;-webkit-overflow-scrolling:touch}
+}
+
+/* ---------- the walkthrough ---------- */
+.demostage{
+  min-height:124px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:12px; background:rgba(8,24,22,.4); border:1px solid var(--line);
+  border-radius:12px; padding:14px 10px; margin-bottom:12px;
+}
+.demohand{display:flex; gap:6px; justify-content:center; flex-wrap:wrap}
+.demotrick{display:flex; gap:12px; justify-content:center; flex-wrap:wrap}
+.dt{display:flex; flex-direction:column; align-items:center; gap:4px}
+.dt .who,.db .who{
+  font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted);
+}
+.demobids{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
+.db{
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  border:1px solid var(--line); border-radius:10px; padding:7px 13px; min-width:66px;
+}
+.db.in{border-color:var(--brass); background:rgba(207,161,78,.12)}
+.db .bv{font-family:"Fraunces",Georgia,serif; font-size:19px; color:var(--ivory)}
+.db.in .bv{color:var(--brass)}
+.demounits{display:flex; gap:5px}
+.demounits .u{
+  width:46px; height:30px; display:grid; place-items:center; border-radius:6px;
+  border:1px solid var(--line); background:rgba(8,24,22,.5); font-size:12px; color:var(--muted);
+}
+.demounits .u.hi{border-color:var(--brass-dim); color:var(--brass); text-transform:uppercase; letter-spacing:.06em}
+.demotitle{margin:0 0 5px; font-family:"Fraunces",Georgia,serif; font-size:16px; color:var(--ivory)}
+.demotrump{
+  font-family:"Archivo",sans-serif; font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--brass); border:1px solid var(--brass-dim); border-radius:999px; padding:1px 8px; margin-left:6px;
+}
+.demonote{margin:0; font-size:13.5px; color:var(--muted); line-height:1.5; min-height:40px}
+.demodots{display:flex; gap:5px; margin-top:11px}
+.demodots .dot{width:6px; height:6px; border-radius:50%; background:var(--line)}
+.demodots .dot.on{background:var(--brass)}
+@media (max-width:760px){
+  .demostage{min-height:96px; padding:10px 6px}
+  .demonote{font-size:12.5px; min-height:52px}
+  .demounits .u{width:36px; height:26px; font-size:11px}
+}
