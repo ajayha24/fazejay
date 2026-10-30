@@ -1,4 +1,4 @@
-# Kitchen Table 45s
+# 45
 
 Auction 45s for four players, by our house rules. One person starts a table,
 sends the link to three friends, and any empty seat is played by a bot.

@@ -177,9 +177,11 @@ ok(R.validContribution(H(['9D']),'S',2,['9D']), "short of cards, you give what y
   var trick=[{seat:2,card:C('KC')},{seat:3,card:C('4D')}];
   var ctx={seat:0,trickNo:2,highBid:{seat:2,value:15},enforce:true,thirdHigh:'probe',
            onContract:true,seen:new Set(['KC','4D','5C','JC']),voidTrump:{1:true,3:true},
-           acted:[2,3]};
+           acted:[2,3],skill:'sharp'};   // reading the table is a sharp bot's trick
   var pick=R.botPlay(hand,trick,t,ctx);
-  ok(pick.id!=='AH', "holds the ace of hearts back when partner's king cannot be beaten");
+  ok(pick.id!=='AH', "a sharp bot holds the ace of hearts back on a trick nobody can take");
+  var easy=Object.assign({},ctx,{skill:'easy'});
+  ok(R.opponentThreat(C('KC'),t,easy,hand)===true, "an easy bot does not count cards, so it assumes a threat");
 
   // Same trick, but the 5 of clubs is still out there and an opponent could hold it.
   var ctx2=Object.assign({},ctx,{seen:new Set(['KC','4D']),voidTrump:{}});

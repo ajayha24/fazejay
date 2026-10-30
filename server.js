@@ -154,7 +154,7 @@ function newCode(){
 }
 
 const DEFAULTS = { target:31, defendersScore:true, setPenalty:'quota',
-                   enforceRenege:true, dealerHold:true, draw:'everyone', kitty:0, thirdHigh:'probe' };
+                   enforceRenege:true, dealerHold:true, draw:'everyone', kitty:0, botSkill:'normal', thirdHigh:'probe' };
 
 function createRoom(){
   const code = newCode();
@@ -560,7 +560,7 @@ function drive(room){
     const seat = G.turn;
     return later(room, 700, () => {
         const b = R.botBid(G.hands[seat], {highBid:G.highBid, seat,
-        isDealer:seat===G.dealer, dealerHold:holdAllowed(room)});
+        isDealer:seat===G.dealer, dealerHold:holdAllowed(room), skill:s.botSkill});
       placeBid(room, seat, b.value, b.hold);
     }, 'botBid');
   }
@@ -600,7 +600,7 @@ function drive(room){
       const sum = (a,b) => (kept(a)==null||kept(b)==null) ? null : kept(a)+kept(b);
       const card = R.botPlay(G.hands[seat], G.trick, G.trump, {
         seat, trickNo:G.trickNo, highBid:G.highBid, enforce:s.enforceRenege,
-        thirdHigh:s.thirdHigh, onContract: teamOf(G.highBid.seat)===teamOf(seat),
+        thirdHigh:s.thirdHigh, onContract: teamOf(G.highBid.seat)===teamOf(seat), skill:s.botSkill,
         teamKept: sum(seat,(seat+2)%4), oppKept: sum((seat+1)%4,(seat+3)%4),
         seen: new Set(G.seen), voidTrump: G.voidTrump,
         acted: G.trick.map(p => p.seat)
@@ -882,6 +882,7 @@ wss.on('connection', ws => {
         if(!host) return;
         const up = m.settings || {};
         if(up.kitty!==undefined) up.kitty = Number(up.kitty) ? 3 : 0;   // on means three cards
+        if(up.botSkill!==undefined && !['easy','normal','sharp'].includes(up.botSkill)) delete up.botSkill;
         Object.assign(room.settings, up);
         return push(room);
       }
@@ -966,6 +967,20 @@ wss.on('connection', ws => {
               better: n.better.map(c => c.id)
             }))});
         }catch(e){ console.error('[review]', e); return send(ws, {type:'review', unavailable:'error'}); }
+      }
+      case 'react': {
+        // One tap, so it works mid-trick on a phone.
+        if(seat===null && !ws.watching) return;
+        const REACTIONS = ['😛','😡','😢','😄'];
+        if(!REACTIONS.includes(String(m.emoji))) return;
+        const who = seat!==null ? room.seats[seat].name : ws.watching;
+        const now = Date.now();
+        room.reactAt = (room.reactAt||[]).filter(x => now - x.at < 6000);
+        if(room.reactAt.filter(x => x.who===who).length >= 4) return;
+        room.reactAt.push({who, at:now});
+        room.chat.push({seat, name:who, text:String(m.emoji), at:now, id:++chatId, react:true});
+        if(room.chat.length > 60) room.chat.shift();
+        return push(room);
       }
       case 'chat': {
         if(seat===null) return;                       // watchers listen only

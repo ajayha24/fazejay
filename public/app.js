@@ -18,11 +18,13 @@ let pendingPw='';                    // kept only until the join succeeds
 let canReset=false;                  // whether this server has a reset key set
 let storage='files';                 // where profiles and stats are kept
 let chatSeen=0;                      // newest chat id already shown
+let chatOpen=false, chatUnread=0;    // on a phone the chat folds into a corner
 let stats={};                        // lifetime record, by name
 
 const EMOJI=['🍀','🔥','🐺','🦊','🐸','🦅','🐢','🦈','🐝','🌙','⭐️','⚡️','🌊','🍺',
              '☕️','🍕','🌮','🎸','🎲','🏒','⚽️','🎯','🧊','👑','💀','🤠','🐙','🌵'];
 const DEALER_PORTRAIT='/tim.jpg';    // the house dealer
+const REACTIONS=['😛','😡','😢','😄'];
 
 const store={
   get token(){ try{ return localStorage.getItem('f45.token'); }catch{ return null; } },
@@ -643,9 +645,15 @@ function paintLobby(){
           [[0,'Off'],[3,'On']].map(k=>
             '<button class="deckopt" data-kitty="'+k[0]+'" aria-pressed="'+(Number(V.settings.kitty||0)===k[0])+'">'+
             '<span class="nm">'+k[1]+'</span></button>').join('')+'</div>'+
-          '<p class="dek" style="margin:6px 0 0;font-size:12px">Three cards face down for whoever buys the hand. With a kitty in play the dealer cannot hold the bid.</p>'
+          '<p class="dek" style="margin:6px 0 0;font-size:12px">Three cards face down for whoever buys the hand. With a kitty in play the dealer cannot hold the bid.</p>'+
+          '<h4 class="pickhead">Bots</h4>'+
+          '<div class="deckrow" id="skillRow">'+
+          [['easy','Easy'],['normal','Normal'],['sharp','Sharp']].map(k=>
+            '<button class="deckopt" data-skill="'+k[0]+'" aria-pressed="'+((V.settings.botSkill||'normal')===k[0])+'">'+
+            '<span class="nm">'+k[1]+'</span></button>').join('')+'</div>'+
+          '<p class="dek" style="margin:6px 0 0;font-size:12px">How well any empty seat plays. Sharp counts cards and reads how many each player kept; easy throws away good trumps.</p>'
         : '<p class="dek" style="margin:14px 0 0;font-size:12.5px">Kitty: <b>'+
-          (V.settings.kitty? 'on':'off')+'</b></p>')+
+          (V.settings.kitty? 'on':'off')+'</b> · Bots: <b>'+(V.settings.botSkill||'normal')+'</b></p>')+
       '<h4 style="margin:16px 0 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600">Your deck</h4>'+
       deckPicker()+
       (myTeam?'<p class="waiting" style="margin:10px 0 0">You’re on <b style="color:var(--sage)">'+myTeam+'</b></p>':'')+
@@ -655,7 +663,7 @@ function paintLobby(){
       '<button class="btn quiet" id="lobbyStats">Lifetime record</button>'+
       '</div></div>';
   } else {
-    body='<div class="panel"><h3>Kitchen Table 45s</h3>'+
+    body='<div class="panel"><h3>45</h3>'+
       '<p class="dek">Four players, two teams, six units a hand. Start a table and send the link to three friends — empty seats are covered by bots.</p>'+
       '<h4 class="pickhead">Who are you?</h4>'+
       (roster.length
@@ -762,6 +770,8 @@ function paintLobby(){
   });
   ov.querySelectorAll('[data-kitty]').forEach(b=>b.onclick=()=>
     send({type:'settings', settings:{kitty:Number(b.dataset.kitty)}}));
+  ov.querySelectorAll('[data-skill]').forEach(b=>b.onclick=()=>
+    send({type:'settings', settings:{botSkill:b.dataset.skill}}));
   const so=el('stepOut2');
   if(so) so.onclick=()=>send({type:'spectate'});
   const ls=el('lobbyStats');
@@ -880,18 +890,37 @@ function chatUI(){
   let box=el('chatbox');
   if(box) return box;
   box=document.createElement('div');
-  box.id='chatbox'; box.className='chatbox';
+  box.id='chatbox'; box.className='chatbox'+(chatOpen?' open':'');
   box.innerHTML='<div class="bubbles" id="bubbles"></div>'+
+    '<div class="reacts" id="reacts">'+REACTIONS.map(e=>
+      '<button class="reactbtn" data-react="'+e+'" aria-label="React '+e+'">'+e+'</button>').join('')+'</div>'+
     '<form class="chatform" id="chatform" autocomplete="off">'+
       '<input id="chatin" maxlength="160" placeholder="Say something…" aria-label="Table chat">'+
-      '<button class="btn tiny" type="submit">Send</button></form>';
+      '<button class="btn tiny" type="submit">Send</button></form>'+
+    '<button class="chattoggle" id="chattoggle" aria-label="Table chat">'+
+      '<span class="ic">💬</span><span class="unread" id="chatunread" hidden></span></button>';
   document.querySelector('.board').appendChild(box);
+  box.querySelectorAll('[data-react]').forEach(b=>b.onclick=()=>{
+    send({type:'react', emoji:b.dataset.react});
+    b.classList.add('pop'); setTimeout(()=>b.classList.remove('pop'), 260);
+  });
+  el('chattoggle').onclick=()=>{
+    chatOpen=!chatOpen;
+    box.classList.toggle('open', chatOpen);
+    if(chatOpen){ chatUnread=0; paintUnread(); const i=el('chatin'); if(i) i.focus(); }
+  };
   el('chatform').onsubmit=e=>{
     e.preventDefault();
     const i=el('chatin'), t=i.value.trim();
     if(t){ send({type:'chat', text:t}); i.value=''; }
   };
   return box;
+}
+function paintUnread(){
+  const n=el('chatunread');
+  if(!n) return;
+  n.textContent=chatUnread>9?'9+':String(chatUnread);
+  n.hidden=chatUnread===0;
 }
 function renderChat(){
   if(V.mySeat===null && !(V.chat||[]).length) return;
@@ -900,12 +929,18 @@ function renderChat(){
   const wrap=el('bubbles');
   const sig=list.map(c=>c.id).join(',');
   if(wrap.dataset.sig===sig) return;
+  const newest=list.length?list[list.length-1].id:0;
+  if(chatSeen && newest>chatSeen && !chatOpen){
+    chatUnread += list.filter(c=>c.id>chatSeen && c.seat!==V.mySeat).length;
+    paintUnread();
+  }
+  chatSeen=newest;
   wrap.dataset.sig=sig;
   const now=Date.now();
   wrap.innerHTML=list.slice(-5).map(c=>{
     const mine=c.seat===V.mySeat;
     const fresh=now-c.at<9000;
-    return '<div class="bubble'+(mine?' mine':'')+(fresh?' fresh':'')+'">'+
+    return '<div class="bubble'+(mine?' mine':'')+(fresh?' fresh':'')+(c.react?' react':'')+'">'+
       '<span class="who">'+avatarHTML(c.name,'sm')+' '+esc(c.name)+'</span>'+
       '<span class="said">'+esc(c.text)+'</span></div>';
   }).join('');
@@ -1231,6 +1266,10 @@ el('btnSettings').onclick=()=>{
   '<p class="dek">Host only. Changes apply from the next hand.</p>'+
   '<div class="setting"><span class="k">Play to</span><input type="number" id="sTarget" min="6" max="200" value="'+s.target+'"></div>'+
   '<div class="setting"><span class="k">Defenders bank their units</span><select id="sDef"><option value="1"'+(s.defendersScore?' selected':'')+'>Yes</option><option value="0"'+(!s.defendersScore?' selected':'')+'>No</option></select></div>'+
+  '<div class="setting"><span class="k">Bots<small>How well an empty seat plays.</small></span>'+
+    '<select id="sSkill">'+['easy','normal','sharp'].map(k=>
+      '<option value="'+k+'"'+((s.botSkill||'normal')===k?' selected':'')+'>'+
+      k.charAt(0).toUpperCase()+k.slice(1)+'</option>').join('')+'</select></div>'+
   '<div class="setting"><span class="k">Kitty<small>Three cards face down for whoever buys the hand. The dealer cannot hold the bid.</small></span>'+
     '<select id="sKitty"><option value="0"'+(!s.kitty?' selected':'')+'>Off</option>'+
     '<option value="3"'+(s.kitty?' selected':'')+'>On</option></select></div>'+
@@ -1244,6 +1283,7 @@ el('btnSettings').onclick=()=>{
       defendersScore:el('sDef').value==='1',
       draw:el('sDraw').value,
       kitty:Number(el('sKitty').value),
+      botSkill:el('sSkill').value,
       enforceRenege:el('sRen').value==='1',
       dealerHold:el('sHold').value==='1'
     }});

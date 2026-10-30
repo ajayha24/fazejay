@@ -159,8 +159,14 @@ function bestBidSuit(hand){
   return best;
 }
 
-function botBid(hand, {highBid, seat, isDealer, dealerHold}){
-  const want = bestBidSuit(hand).bid;
+function botBid(hand, {highBid, seat, isDealer, dealerHold, skill}){
+  let want = bestBidSuit(hand).bid;
+  if(skill === 'easy'){
+    // An easy bot only backs a hand with the 5 in it, and never past 20.
+    const best = bestBidSuit(hand);
+    const h = suitHolding(hand, best.suit);
+    want = h.five ? Math.min(want, 20) : 0;
+  }
   const cur = highBid ? highBid.value : 0;
   const partnerIn = highBid && (highBid.seat % 2) === (seat % 2);
   if(partnerIn && want <= cur) return {value:null, hold:false};          // don't bid your partner up
@@ -189,6 +195,9 @@ function outstandingAbove(card, t, seen, myHand){
    ace of hearts, which may legally be held back, so those stay possible until
    they are actually seen. */
 function opponentThreat(card, t, ctx, myHand){
+  // Only the sharpest bots keep track of what has gone; the rest assume the
+  // worst, which is what not counting cards amounts to.
+  if(ctx.skill !== 'sharp') return true;
   const seen = ctx.seen || new Set();
   const voidTrump = ctx.voidTrump || {};
   const higher = outstandingAbove(card, t, seen, myHand);
@@ -203,14 +212,15 @@ function opponentThreat(card, t, ctx, myHand){
   return false;
 }
 
-function botLead(legal, t, {onContract, trickNo, thirdHigh, teamKept, oppKept}){
+function botLead(legal, t, {onContract, trickNo, thirdHigh, teamKept, oppKept, skill}){
   const n = TRUMP_ORDER[t].length;
   const trumps = hiFirst(legal.filter(c => isTrump(c,t)), t);
   const plains = hiFirst(legal.filter(c => !isTrump(c,t)), t);
   // Everyone pitches all their non-trump, so what a player KEEPS is exactly how
   // many trumps they were dealt — it is public information. When the other side
   // kept more than yours, stop pulling: make them spend trumps on plain tricks.
-  const outgunned = teamKept!=null && oppKept!=null && oppKept > teamKept;
+  // Reading the keep counts is another sharp-bot habit.
+  const outgunned = skill === 'sharp' && teamKept!=null && oppKept!=null && oppKept > teamKept;
 
   // Opening lead: probe with a low plain card rather than pulling with a top
   // trump. Leading the 5 buries an honour of your partner's 63% of the time —
@@ -228,6 +238,13 @@ function botLead(legal, t, {onContract, trickNo, thirdHigh, teamKept, oppKept}){
 
 function botPlay(hand, trick, t, ctx){
   const legal = legalMoves(hand, trick, t, ctx.enforce);
+  /* Difficulty is mostly how often a bot plays a careless card. The clever
+     habits — counting cards, reading the keep counts — are each worth only a
+     point or two, so the dial that players actually feel is this one. */
+  const SLIP = {easy: 0.34, normal: 0.12, sharp: 0};
+  const slip = SLIP[ctx.skill] !== undefined ? SLIP[ctx.skill] : 0;
+  if(slip && legal.length > 1 && Math.random() < slip)
+    return legal[Math.floor(Math.random()*legal.length)];
   const n = TRUMP_ORDER[t].length, top3 = TOP3(t);
   const toss = a => {
     const plain = a.filter(c => !isTrump(c,t));
@@ -271,8 +288,9 @@ function botPlay(hand, trick, t, ctx){
     if(ctx.thirdHigh==='always' ? ctx.trickNo===0 : probe) return hiFirst(beats,t)[0];
   }
   // Win as cheaply as you can, holding the 5, the jack and the ace of hearts
-  // back while something smaller still does the job.
+  // back while something smaller still does the job. An easy bot spends them.
   const cheapest = hiFirst(beats,t).reverse();
+  if(ctx.skill === 'easy') return cheapest[0];
   const modest = cheapest.filter(c => !top3.includes(c.id));
   return (modest.length ? modest : cheapest)[0];
 }

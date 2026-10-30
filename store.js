@@ -25,6 +25,8 @@ let usingDb = false;
 let gist = null;                  // {id, token} once found or created
 const timers = {};
 
+// Keep this string as it is: the gist is found by it, so changing the name
+// would orphan everything already saved.
 const GIST_MARK = 'kitchen-table-45s data — do not delete';
 const GIST_FILES = {profiles:'profiles.json', stats:'stats.json'};
 
