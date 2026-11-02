@@ -74,6 +74,23 @@ function adminOk(key){
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/* Five wrong passwords locks a profile until somebody with the reset key
+   unlocks it, which grants five more. Counted per profile, so trying from a
+   fresh connection or a different machine does not buy more guesses. */
+const MAX_TRIES = 5;
+const fails = new Map();
+const failCount = name => fails.get(name) || 0;
+const isLocked = name => failCount(name) >= MAX_TRIES;
+function noteFail(name){
+  const n = failCount(name) + 1;
+  fails.set(name, n);
+  if(n >= MAX_TRIES) console.warn('[auth] ' + name + ' locked after ' + n + ' wrong passwords');
+  return n;
+}
+const clearFails = name => fails.delete(name);
+const lockedMessage = name =>
+  name + ' is locked after ' + MAX_TRIES + ' wrong passwords. Someone with the reset key has to unlock it.';
+
 /* Passwords are never stored, only a salted hash of them. */
 function hashPw(pw, salt){
   return crypto.scryptSync(String(pw), salt, 32).toString('hex');
@@ -100,6 +117,30 @@ function claimIfOpen(name, pw){
   saveProfiles();
   return true;
 }
+/* The single place a password is judged, so the lockout cannot be walked
+   around by using a different message. */
+function authorise(ws, name, pw){
+  if(isGuest(name)){ ws.signedIn = name; return null; }
+  if(ws.signedIn === name) return null;
+  if(isLocked(name)) return lockedMessage(name);
+  if(!profiles[name].hash){
+    if(!claimIfOpen(name, pw))
+      return 'Set a password of at least 4 characters for ' + name + '.';
+    ws.signedIn = name;
+    return null;
+  }
+  if(!checkPassword(profiles[name], pw)){
+    const n = noteFail(name);
+    const left = MAX_TRIES - n;
+    return left > 0
+      ? 'Wrong password for ' + name + '. ' + left + ' ' + (left===1?'try':'tries') + ' left.'
+      : lockedMessage(name);
+  }
+  clearFails(name);
+  ws.signedIn = name;
+  return null;
+}
+
 const avatarOf = name => isGuest(name) ? '👤' : ((profiles[name] && profiles[name].avatar) || '🙂');
 const needsPassword = name => !isGuest(name) && !!(profiles[name] && profiles[name].hash);
 /* Lifetime record, by name. Same idea as the emoji: kept on disk so it
@@ -125,11 +166,14 @@ const sendStats = ws => send(ws, {type:'stats', map:stats});
 
 /* An avatar is either one emoji or a small cropped photo as a data URL. */
 const PHOTO = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+/* An emoji, and nothing but — anything else here ends up injected into every
+   player's page, since avatars are drawn as markup. */
+const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\uFE0F|\u200D\p{Extended_Pictographic}|\p{Emoji_Modifier}|[\u{1F3FB}-\u{1F3FF}])*$/u;
 function okAvatar(v){
   const s = String(v||'');
   if(!s) return null;
   if(PHOTO.test(s)) return s.length <= 160000 ? s : null;     // a cropped square, not an album
-  return [...s].length && s.length <= 16 ? s : null;
+  return (s.length <= 16 && EMOJI_ONLY.test(s)) ? s : null;
 }
 
 function broadcastProfiles(origin){
@@ -144,7 +188,8 @@ const saveProfiles = () => store.save('profiles', profiles, 400);
 let storage = 'files';
 const sendProfiles = ws => send(ws, {type:'profiles', roster:roster(), canReset: !!ADMIN_KEY, storage,
   map: Object.fromEntries(roster().map(n => [n, avatarOf(n)])),
-  locked: roster().filter(needsPassword)});
+  locked: roster().filter(needsPassword),
+  lockedOut: roster().filter(isLocked)});
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function newCode(){
   let c;
@@ -692,7 +737,21 @@ function push(room){
 }
 
 /* ---------------- websocket plumbing ---------------- */
-const wss = new WebSocketServer({ server });
+/* Only pages from this site may open a socket. Browsers always send Origin,
+   so anything else is a script somewhere else driving the server. */
+function originOk(req){
+  const o = req.headers.origin;
+  if(!o) return true;                                   // non-browser clients
+  try {
+    const h = new URL(o).host;
+    return h === req.headers.host || /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(h);
+  } catch { return false; }
+}
+const wss = new WebSocketServer({ server, verifyClient: info => {
+  const ok = originOk(info.req);
+  if(!ok) console.warn('[ws] refused a socket from', info.req.headers.origin);
+  return ok;
+}});
 
 function seatOfToken(room, token){
   for(let s=0;s<4;s++) if(room.seats[s] && room.seats[s].token===token) return s;
@@ -716,12 +775,9 @@ wss.on('connection', ws => {
       const host = findName(m.name);
       if(!host)
         return send(ws, {type:'error', message:'Pick a profile first, or make one.'});
-      if(!isGuest(host) && ws.signedIn !== host){
-        if(!profiles[host].hash && !claimIfOpen(host, m.password))
-          return send(ws, {type:'error', message:'Set a password of at least 4 characters for '+host+'.'});
-        if(!checkPassword(profiles[host], m.password))
-          return send(ws, {type:'error', message:'Wrong password for '+host+'.'});
-        ws.signedIn = host;
+      {
+        const bad = authorise(ws, host, m.password);
+        if(bad) return send(ws, {type:'error', message:bad, locked:isLocked(host), name:host});
       }
       r.seats[0] = {token, name:host, bot:false, sockets:new Set([ws]), away:false};
       r.hostToken = token;
@@ -755,13 +811,8 @@ wss.on('connection', ws => {
         } else {
           if(r.seats.some(p => p && p.name === want))
             return send(ws, {type:'error', message:want+' is already at this table. Pick another profile.'});
-          if(ws.signedIn !== want){
-            if(!profiles[want].hash && !claimIfOpen(want, m.password))
-              return send(ws, {type:'error', message:'Set a password of at least 4 characters for '+want+'.'});
-            if(!checkPassword(profiles[want], m.password))
-              return send(ws, {type:'error', message:'Wrong password for '+want+'.'});
-            ws.signedIn = want;
-          }
+          const bad = authorise(ws, want, m.password);
+          if(bad) return send(ws, {type:'error', message:bad, locked:isLocked(want), name:want});
         }
         seat = m.seat!==undefined && m.seat!==null && !r.seats[m.seat] ? Number(m.seat)
              : r.seats.findIndex(p => !p);
@@ -809,6 +860,17 @@ wss.on('connection', ws => {
       console.log('[admin] profile removed:', nm);
       return send(ws, {type:'profilegone', name:nm});
     }
+    if(m.type==='unlock'){
+      if(!ADMIN_KEY)
+        return send(ws, {type:'error', message:'No reset key is set on this server, so nothing can be unlocked.'});
+      if(!adminOk(m.key))
+        return send(ws, {type:'error', message:'That reset key is not right.'});
+      const nm = findName(m.name);
+      if(!nm) return send(ws, {type:'error', message:'No profile by that name.'});
+      clearFails(nm);
+      console.log('[admin] unlocked', nm);
+      return send(ws, {type:'unlocked', name:nm, tries:MAX_TRIES});
+    }
     if(m.type==='resetpw'){
       ws.resetTries = (ws.resetTries || 0) + 1;
       if(ws.resetTries > 5)
@@ -821,6 +883,7 @@ wss.on('connection', ws => {
       if(!nm) return send(ws, {type:'error', message:'No profile by that name.'});
       delete profiles[nm].salt;
       delete profiles[nm].hash;
+      clearFails(nm);
       saveProfiles();
       for(const r of rooms.values())
         for(const p of r.seats) if(p && p.name === nm) p.sockets.forEach(sk => { sk.signedIn = null; });
@@ -831,14 +894,17 @@ wss.on('connection', ws => {
     if(m.type==='signin'){
       const nm = findName(m.name);
       if(!nm) return send(ws, {type:'error', message:'No profile by that name.'});
-      if(!checkPassword(profiles[nm], m.password))
-        return send(ws, {type:'error', message:'Wrong password for '+nm+'.'});
-      claimIfOpen(nm, m.password);
-      ws.signedIn = nm;
+      const bad = authorise(ws, nm, m.password);
+      if(bad) return send(ws, {type:'error', message:bad, locked:isLocked(nm), name:nm});
       return send(ws, {type:'signedin', name:nm});
     }
     if(m.type==='stats'){ return sendStats(ws); }
     if(m.type==='newprofile'){
+        ws.made = (ws.made || 0) + 1;
+        if(ws.made > 6)
+          return send(ws, {type:'error', message:'That is a lot of profiles. Reload if you really need another.'});
+        if(roster().length > 300)
+          return send(ws, {type:'error', message:'This table has as many profiles as it can hold.'});
         const want = String(m.name||'').trim().replace(/\s+/g,' ');
         if(isGuest(want) || want.toLowerCase() === 'guest')
           return send(ws, {type:'error', message:'Guest is always available — no need to make it.'});

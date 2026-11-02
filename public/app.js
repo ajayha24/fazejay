@@ -7,6 +7,8 @@ const SUITNAME={S:'Spades',H:'Hearts',D:'Diamonds',C:'Clubs'};
 const RED={H:1,D:1};
 const quotaFor=b=>b/5;
 const el=id=>document.getElementById(id);
+const esc=t=>String(t).replace(/[&<>"']/g,ch=>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
 let ws=null, V=null, discardSel=new Set(), connected=false, myToken=null;
 let dealKey=null, dealAt=0;          // which hand we last animated, and when
@@ -14,6 +16,7 @@ let profiles={}, roster=[];          // everyone's emoji, and who can play
 let pickName=null, pickEmoji=null;   // lobby selections before joining
 let makingProfile=false, newProfName='';
 let locked=[];                       // profiles that have a password set
+let lockedOut=[];                    // and ones locked after too many wrong tries
 let pendingPw='';                    // kept only until the join succeeds
 let canReset=false;                  // whether this server has a reset key set
 let storage='files';                 // where profiles and stats are kept
@@ -112,6 +115,13 @@ function connect(then){
         '<div class="row"><button class="btn solid" id="okReset">Done</button></div></div>');
       el('okReset').onclick=()=>{ closeOv(); paintLobby(); };
     }
+    else if(m.type==='unlocked'){
+      paint('resetok','<div class="panel"><h3>Unlocked</h3>'+
+        '<p class="dek"><b>'+esc(m.name)+'</b> has '+m.tries+' more tries. '+
+        'If the password is genuinely forgotten, clear it instead and they can set a new one.</p>'+
+        '<div class="row"><button class="btn solid" id="okReset">Done</button></div></div>');
+      el('okReset').onclick=()=>{ closeOv(); paintLobby(); };
+    }
     else if(m.type==='resetdone'){
       paint('resetok','<div class="panel"><h3>Password cleared</h3>'+
         '<p class="dek"><b>'+esc(m.name)+'</b> can now set a new one: pick that profile, '+
@@ -138,6 +148,7 @@ function connect(then){
     else if(m.type==='stats'){ stats=m.map||{}; if(ovKind==='stats') paintStats(); }
     else if(m.type==='profiles'){
       profiles=m.map||{}; roster=m.roster||[]; locked=m.locked||[]; canReset=!!m.canReset;
+      lockedOut=m.lockedOut||[];
       storage=m.storage||'files';
       if(V) render();
       if(ovKind==='lobby') paintLobby();      // the picker needs the roster
@@ -296,7 +307,7 @@ function renderSeats(){
     const plate='<div class="plate'+(isTurn?' active':'')+(mine?' us':'')+'">'+
       '<span class="dot '+dot+'"></span>'+
       '<span class="avatar">'+avatarHTML(nameOf(seat))+'</span>'+
-      '<span class="pname">'+(seat===V.mySeat?'You':nameOf(seat))+'</span>'+
+      '<span class="pname">'+(seat===V.mySeat?'You':esc(nameOf(seat)))+'</span>'+
       (roles.length?'<span class="prole">'+roles.join(' · ')+'</span>':'')+chip+'</div>';
 
     if(pos===0){ box.innerHTML=plate; continue; }
@@ -699,6 +710,10 @@ function paintLobby(){
       (pickName&&!makingProfile
         ? (pickName==='Guest'
             ? '<p class="dek" style="margin:12px 0 0;font-size:12.5px">No password needed. Nothing a guest does is kept — hands and books are not recorded.</p>'
+            : lockedOut.includes(pickName)
+            ? '<p class="dek" style="margin:12px 0 0;color:var(--rouge-bright)">'+esc(pickName)+
+              ' is locked after five wrong passwords.</p>'+
+              '<div class="row" style="margin-top:8px"><button class="btn quiet tiny" id="unlockBtn">Unlock with the reset key</button></div>'
             : '<div class="lobby" style="margin-top:12px">'+
               '<label>Password<input id="joinPw" type="password" maxlength="40" placeholder="'+
               (locked.includes(pickName)?'Your password':'Set a password for this profile')+'"></label></div>'+
@@ -757,6 +772,8 @@ function paintLobby(){
   if(pf) pf.oninput=()=>{ newProfName=pf.value; };
   const fg=el('forgotBtn');
   if(fg) fg.onclick=()=>paintReset(pickName);
+  const ub=el('unlockBtn');
+  if(ub) ub.onclick=()=>paintReset(pickName);
   const ph=el('photoBtn');
   if(ph) ph.onclick=()=>openCropper(data=>{
     pickEmoji=data;
@@ -811,13 +828,16 @@ function paintReset(name){
           '<label>Reset key<input id="rsKey" type="password" maxlength="80" placeholder="Held by whoever runs the table"></label>'+
         '</div>'+
         '<div class="row" style="margin-top:14px">'+
-          '<button class="btn solid" id="rsGo">Clear the password</button>'+
+          '<button class="btn solid" id="rsUnlock">Unlock (5 more tries)</button>'+
+          '<button class="btn quiet" id="rsGo">Clear the password</button>'+
           '<button class="btn quiet" id="rsDel">Delete the profile</button>'+
           '<button class="btn quiet" id="rsCancel">Back</button></div>'+
         '<p class="dek" style="margin:10px 0 0;font-size:11.5px">Deleting removes the profile and its record for good.</p>'
       : '<p class="dek" style="color:var(--rouge-bright)">This server has no reset key set, so passwords cannot be cleared here yet.</p>'+
         '<div class="row"><button class="btn quiet" id="rsCancel">Back</button></div>')+
     '</div>');
+  const un=el('rsUnlock');
+  if(un) un.onclick=()=>send({type:'unlock', name:el('rsName').value.trim(), key:el('rsKey').value});
   const go=el('rsGo');
   if(go) go.onclick=()=>send({type:'resetpw', name:el('rsName').value.trim(), key:el('rsKey').value});
   const del=el('rsDel');
@@ -946,8 +966,6 @@ function renderChat(){
   }).join('');
   wrap.scrollTop=wrap.scrollHeight;
 }
-const esc=t=>String(t).replace(/[&<>"']/g,ch=>
-  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
 /* ---------------- the walkthrough ----------------
    A scripted hand that plays itself, so the rules can be watched rather than
@@ -1036,8 +1054,10 @@ function stopDemo(){ clearInterval(demoTimer); demoTimer=null; }
 const isPhoto=v=>typeof v==='string' && v.startsWith('data:image');
 function avatarHTML(name, cls){
   const a=profiles[name];
-  if(isPhoto(a)) return '<img class="pfp'+(cls?' '+cls:'')+'" src="'+a+'" alt="">';
-  return a || (name||'?').slice(0,1).toUpperCase();
+  // Escaped on the way out as well as validated on the way in: an avatar is
+  // drawn as markup in a dozen places, so one bad value would reach them all.
+  if(isPhoto(a)) return '<img class="pfp'+(cls?' '+cls:'')+'" src="'+esc(a)+'" alt="">';
+  return esc(a || (name||'?').slice(0,1).toUpperCase());
 }
 
 function openCropper(onDone){
